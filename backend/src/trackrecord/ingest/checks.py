@@ -20,7 +20,8 @@ RECENT_RELEASES = 8
 MIN_SHARE_WITH_GUIDANCE = 0.5
 
 # A sentence with an expectation word, a quarter and a number, in any order.
-_SENTENCE_END = re.compile(r"(?<=[.;!?])\s+")
+# Not after abbreviations like "U.S." (Lam: "U.S. GAAP ... Revenue $8.60 Billion").
+_SENTENCE_END = re.compile(r"(?<![A-Z]\.[A-Z]\.)(?<=[.;!?])\s+")
 _EXPECTATION = re.compile(
     r"\b(outlook|guidance|expect\w*|anticipat\w*|forecast\w*|project\w*)\b", re.IGNORECASE
 )
