@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeClaude, promise, response
+from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeLlmClient, promise, response
 from trackrecord.config import Settings
 from trackrecord.ingest.storage import RawStore
 from trackrecord.llm import Llm
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.db
 async def extract(
     sessionmaker: async_sessionmaker[AsyncSession],
     settings: Settings,
-    client: FakeClaude,
+    client: FakeLlmClient,
     filing_id: int,
     **kwargs: bool,
 ):
@@ -54,7 +54,7 @@ async def promises(session: AsyncSession) -> list[Promise]:
 async def test_extracts_and_stores_normalized_promises(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
+    client = FakeLlmClient(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
 
     stats = await extract(sessionmaker, settings, client, release_id)
 
@@ -96,7 +96,7 @@ async def test_rejects_past_periods_and_invented_quotes(
             promise(fiscal_year=2029, fiscal_quarter=1),  # beyond the projected calendar
         ]
     )
-    client = FakeClaude(lambda kwargs: response(output))
+    client = FakeLlmClient(lambda kwargs: response(output))
 
     stats = await extract(sessionmaker, settings, client, release_id)
 
@@ -115,7 +115,7 @@ async def test_rejects_past_periods_and_invented_quotes(
 async def test_skips_documents_already_extracted(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
+    client = FakeLlmClient(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
     await extract(sessionmaker, settings, client, release_id)
     async with sessionmaker() as session:
         assert release_id not in await releases_to_extract(session)
@@ -132,7 +132,7 @@ async def test_skips_documents_already_extracted(
 async def test_later_guidance_supersedes_earlier(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
+    client = FakeLlmClient(lambda kwargs: response(NVDA_Q2FY27_OUTPUT))
     await extract(sessionmaker, settings, client, release_id)
 
     async with sessionmaker() as session:

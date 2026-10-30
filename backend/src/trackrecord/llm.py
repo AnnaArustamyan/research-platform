@@ -1,4 +1,4 @@
-"""Claude calls with a cost ledger and a hard monthly budget (docs/design.md §7).
+"""LLM calls with a cost ledger and a hard monthly budget (docs/design.md §7).
 
 Every request is recorded in `llm_calls` with its token usage and cost. Before a
 request, the month's spend plus the request's estimated cost is checked against
@@ -32,13 +32,13 @@ class Price:
     input: Decimal
     output: Decimal
     cache_read: Decimal
-    # Claude Haiku 5.5 charges more for prompts over 100K tokens.
+    # Haiku 5.5 charges more for prompts over 100K tokens.
     long_prompt_threshold: int | None = None
     long_input: Decimal | None = None
     long_output: Decimal | None = None
 
 
-# First-party Claude API list prices as of 2026-10. Cache writes cost 1.25x input.
+# Anthropic API list prices as of 2026-10. Cache writes cost 1.25x input.
 PRICES: dict[str, Price] = {
     "claude-haiku-5-5": Price(
         Decimal("0.10"),
@@ -222,7 +222,7 @@ def interpret_response(response: Any) -> tuple[Any, LlmCallStatus, str | None]:
     return output, LlmCallStatus.SUCCEEDED, None
 
 
-def has_claude_credentials() -> bool:
+def has_llm_credentials() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 

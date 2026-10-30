@@ -1,6 +1,6 @@
 # Hand-labeled guidance for the extraction eval (docs/design.md §8).
 #
-# Status: first draft, labeled by Claude from the release text and awaiting human
+# Status: first draft, labeled from the release text and awaiting a second
 # review. Each filing lists every guidance statement on a dictionary metric,
 # normalized the way trackrecord.promises.normalize does it:
 # - values are absolute (USD, percent, USD per share); a point has low == high;

@@ -25,7 +25,7 @@ from trackrecord.ingest.runner import (
 )
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import filings_missing_documents, load_universe, seed_companies
-from trackrecord.llm import has_claude_credentials, make_llm, month_spend
+from trackrecord.llm import has_llm_credentials, make_llm, month_spend
 from trackrecord.models import Company
 from trackrecord.promises.batch import collect as collect_batches
 from trackrecord.promises.batch import submit as submit_batch
@@ -137,7 +137,7 @@ def extract(
 
     async def run() -> None:
         settings = get_settings()
-        if not has_claude_credentials():
+        if not has_llm_credentials():
             raise typer.BadParameter("set ANTHROPIC_API_KEY to extract promises")
         engine = make_engine(settings.database_url)
         sessionmaker = make_sessionmaker(engine)
@@ -222,7 +222,7 @@ def read_results(
 
     async def run() -> None:
         settings = get_settings()
-        if not has_claude_credentials():
+        if not has_llm_credentials():
             raise typer.BadParameter("set ANTHROPIC_API_KEY to read results")
         engine = make_engine(settings.database_url)
         sessionmaker = make_sessionmaker(engine)
@@ -317,7 +317,7 @@ def eval_extraction(
         sessionmaker = make_sessionmaker(engine)
         golden = load_golden()
         if run:
-            if not has_claude_credentials():
+            if not has_llm_credentials():
                 raise typer.BadParameter("set ANTHROPIC_API_KEY to run the extractor")
             llm = make_llm(sessionmaker, settings)
             async with sessionmaker() as session:

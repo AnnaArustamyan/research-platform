@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.conftest import FakeEdgar
-from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeClaude, promise, response
+from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeLlmClient, promise, response
 from tests.test_resolve import add_promise
 from trackrecord import worker
 from trackrecord.api.app import create_app
@@ -140,7 +140,7 @@ async def extracted(
     output = ExtractionOutput(
         promises=[*NVDA_Q2FY27_OUTPUT.promises, promise(metric="gross_margin", confidence=0.4)]
     )
-    llm = Llm(FakeClaude(lambda kwargs: response(output)), sessionmaker, Decimal(30))
+    llm = Llm(FakeLlmClient(lambda kwargs: response(output)), sessionmaker, Decimal(30))
     await extract_filing(
         sessionmaker,
         llm,

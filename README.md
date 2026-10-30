@@ -11,7 +11,7 @@ See [docs/design.md](docs/design.md) for the v1.0 design.
 | Milestone | State |
 |---|---|
 | M1 Foundation: EDGAR sync, XBRL facts, fiscal calendars, API, worker, CI | done |
-| M2 Promise extraction: extractor, validation, review queue, cost ledger, eval | built; first eval run needs a Claude API key |
+| M2 Promise extraction: extractor, validation, review queue, cost ledger, eval | built; first eval run needs an LLM API key |
 | M3 Resolution and credibility: XBRL and press-release actuals, outcomes, scores | built; GAAP side runs on real data, non-GAAP needs the API key |
 | M4 Desktop app | next |
 
@@ -51,7 +51,7 @@ uv run trackrecord eval-extraction --run        # extract the 19 golden releases
 uv run trackrecord extract --batch              # backfill every release via the Batch API
 uv run trackrecord collect                      # store finished batch results (re-run until done)
 uv run trackrecord read-results                 # reported results incl. non-GAAP, then resolve
-uv run trackrecord spend                        # month-to-date Claude spend
+uv run trackrecord spend                        # month-to-date LLM spend
 ```
 
 Resolution and credibility (no API calls; also run after every sync):
@@ -88,7 +88,7 @@ backend/
     credibility.py  per-company scores
     evals/        scoring against hand-labeled data
     documents.py  HTML to structured plain text
-    llm.py        Claude calls with a cost ledger and monthly budget
+    llm.py        LLM calls with a cost ledger and monthly budget
     api/          FastAPI app
     worker.py     background jobs (procrastinate)
     models.py     database schema

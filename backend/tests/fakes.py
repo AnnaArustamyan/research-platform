@@ -1,4 +1,4 @@
-"""Test doubles for the Claude API."""
+"""Test doubles for the LLM API."""
 
 from collections.abc import AsyncIterator, Callable
 from types import SimpleNamespace
@@ -35,7 +35,7 @@ class FakeMessages:
         return self._respond(kwargs)
 
 
-class FakeClaude:
+class FakeLlmClient:
     """Stands in for anthropic.AsyncAnthropic: `messages.parse` and `messages.batches`."""
 
     def __init__(self, respond: Callable[[dict[str, Any]], Any]) -> None:

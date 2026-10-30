@@ -23,7 +23,7 @@ from trackrecord.edgar.client import EdgarClient
 from trackrecord.ingest.runner import run_company_sync, run_document_fetch
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import filings_missing_documents
-from trackrecord.llm import Llm, has_claude_credentials, make_llm
+from trackrecord.llm import Llm, has_llm_credentials, make_llm
 from trackrecord.models import Company, Filing, FilingKind
 from trackrecord.promises.extract import extract_filing
 from trackrecord.resolve import resolve_company
@@ -42,7 +42,7 @@ class Resources:
     sessionmaker: async_sessionmaker[AsyncSession]
     client: EdgarClient
     store: RawStore
-    llm: Llm | None  # None without Claude credentials: extraction is skipped
+    llm: Llm | None  # None without LLM credentials: extraction is skipped
 
 
 @cache
@@ -58,7 +58,7 @@ def resources() -> Resources:
             max_requests_per_second=settings.sec_max_requests_per_second,
         ),
         store=RawStore(settings.raw_dir),
-        llm=make_llm(sessionmaker, settings) if has_claude_credentials() else None,
+        llm=make_llm(sessionmaker, settings) if has_llm_credentials() else None,
     )
 
 
@@ -130,7 +130,7 @@ async def fetch_documents_task(filing_id: int) -> None:
 async def extract_promises_task(filing_id: int) -> None:
     r = resources()
     if r.llm is None:
-        log.warning("no Claude credentials, skipping extraction of filing %s", filing_id)
+        log.warning("no LLM credentials, skipping extraction of filing %s", filing_id)
         return
     stats = await extract_filing(
         r.sessionmaker,

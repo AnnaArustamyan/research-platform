@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.fakes import FakeClaude, response
+from tests.fakes import FakeLlmClient, response
 from trackrecord.llm import BudgetExceeded, Llm, LlmError, cost_usd, month_spend
 from trackrecord.models import LlmBatch, LlmBatchStatus, LlmCall, LlmCallStatus
 from trackrecord.promises.schema import ExtractionOutput
@@ -35,7 +35,7 @@ def test_batch_is_half_price_and_cache_reads_are_cheap() -> None:
 
 
 def make_llm(
-    sessionmaker: async_sessionmaker[AsyncSession], client: FakeClaude, budget: str = "30"
+    sessionmaker: async_sessionmaker[AsyncSession], client: FakeLlmClient, budget: str = "30"
 ) -> Llm:
     return Llm(client, sessionmaker, Decimal(budget))
 
@@ -56,7 +56,7 @@ async def call(llm: Llm) -> object:
 async def test_successful_call_is_recorded(
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(ExtractionOutput(promises=[])))
+    client = FakeLlmClient(lambda kwargs: response(ExtractionOutput(promises=[])))
     result = await call(make_llm(sessionmaker, client))
 
     request = client.messages.calls[0]
@@ -82,7 +82,7 @@ async def test_successful_call_is_recorded(
 async def test_unusable_responses_are_recorded_and_raise(
     sessionmaker: async_sessionmaker[AsyncSession], stop_reason: str, status: LlmCallStatus
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(None, stop_reason=stop_reason))
+    client = FakeLlmClient(lambda kwargs: response(None, stop_reason=stop_reason))
 
     with pytest.raises(LlmError) as error:
         await call(make_llm(sessionmaker, client))
@@ -108,7 +108,7 @@ async def test_budget_is_checked_before_calling(
             )
         )
         await session.commit()
-    client = FakeClaude(lambda kwargs: response(ExtractionOutput(promises=[])))
+    client = FakeLlmClient(lambda kwargs: response(ExtractionOutput(promises=[])))
 
     with pytest.raises(BudgetExceeded):
         await call(make_llm(sessionmaker, client, budget="1"))

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.conftest import load_fixture
-from tests.fakes import FakeClaude, response
+from tests.fakes import FakeLlmClient, response
 from trackrecord.actuals.press import (
     ReportedResults,
     ReportedValue,
@@ -194,7 +194,7 @@ RESULTS = ReportedResults(
 async def test_extract_reported_results(
     sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
 ) -> None:
-    client = FakeClaude(lambda kwargs: response(RESULTS))
+    client = FakeLlmClient(lambda kwargs: response(RESULTS))
     llm = Llm(client, sessionmaker, Decimal(30))
 
     stats = await extract_reported_results(

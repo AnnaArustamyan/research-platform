@@ -4,7 +4,7 @@
 > companies promise investors, checks those promises against what they later
 > report, and answers research questions with cited, code-computed numbers.
 
-Status: approved; M1 done, M2 and M3 built (awaiting first runs with a Claude API key) · Owner: Anna Arustamyan · Last updated: 2026-10-30
+Status: approved; M1 done, M2 and M3 built (awaiting first runs with an LLM API key) · Owner: Anna Arustamyan · Last updated: 2026-10-30
 
 ---
 
@@ -82,7 +82,7 @@ honest view of management credibility. Multi-user and hosting are post-v1.0.
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │ PostgreSQL 17 + pgvector: relational data, XBRL facts, chunks, embeddings, FTS │
 └─────────────────────────────────────────────────────────────────────────────────┘
-        External: SEC EDGAR (free) · Claude API · local embedding models
+        External: SEC EDGAR (free) · Anthropic API · local embedding models
         Observability: OpenTelemetry → Arize Phoenix (local container)
 ```
 
@@ -102,7 +102,7 @@ laptop is off.
 | Parsing | `selectolax` (lexbor engine) for HTML, custom table extractor | Press releases and filings are messy HTML |
 | Embeddings / rerank | Local via `fastembed` (bge-family, final model picked by eval) | Zero API cost |
 | Keyword search | Postgres full-text search (`tsvector`); ParadeDB `pg_search` if real BM25 measurably helps | Start simple, upgrade on evidence |
-| LLM | Claude via the official `anthropic` SDK; structured outputs with Pydantic | See §7 for model routing |
+| LLM | Anthropic models via the official `anthropic` SDK; structured outputs with Pydantic | See §7 for model routing |
 | Tracing | OpenTelemetry → Arize Phoenix | Vendor-neutral; Phoenix is one container (self-hosted Langfuse needs ClickHouse + Redis + S3) |
 | Quality | `ruff`, `pyright`, `pytest`, `pytest-recording` (VCR) | Fast local checks matching CI |
 | Desktop | Tauri 2, React, TypeScript, Vite, TanStack Query + Router, shadcn/ui, ECharts | Small native binary, native notifications/tray/updater, large UI ecosystem |
@@ -381,7 +381,7 @@ covers most research math without a sandbox to secure.
 - **Injection test suite:** synthetic poisoned documents ("ignore previous
   instructions", fake guidance, hidden text) are indexed in a test corpus.
   The suite asserts the agent neither follows them nor cites them as fact.
-- The API binds to localhost with a per-install token; the Claude API key is
+- The API binds to localhost with a per-install token; the LLM API key is
   stored in the OS keychain through Tauri, never in the repo.
 
 ---
@@ -393,12 +393,12 @@ kept only if it passes that task's eval.
 
 | Task | Default model | Notes |
 |---|---|---|
-| Promise extraction (backfill) | Claude Haiku 5.5 via Batch API (50 % off) | ~800 releases, ≈12M input tokens, about $1 |
-| Promise extraction (ongoing) | Claude Haiku 5.5 | Cents per month |
-| Citation support check | Claude Haiku 5.5 | Short, many calls |
-| Research agent | Claude Sonnet 5.5 | Prompt caching on system prompt + tool definitions |
-| Deep research mode (opt-in) | Claude Opus 5.5 | User-triggered only |
-| LLM judge (evals) | Claude Sonnet 5.5 | Calibrated against human labels (§8) |
+| Promise extraction (backfill) | Haiku 5.5 via Batch API (50 % off) | ~800 releases, ≈12M input tokens, about $1 |
+| Promise extraction (ongoing) | Haiku 5.5 | Cents per month |
+| Citation support check | Haiku 5.5 | Short, many calls |
+| Research agent | Sonnet 5.5 | Prompt caching on system prompt + tool definitions |
+| Deep research mode (opt-in) | Opus 5.5 | User-triggered only |
+| LLM judge (evals) | Sonnet 5.5 | Calibrated against human labels (§8) |
 
 Every call is written to `llm_calls` with its cost. A **hard monthly budget**
 (default $30) is enforced before each call. Background jobs pause when the

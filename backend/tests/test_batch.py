@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeClaude, batch_error, batch_success
+from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeLlmClient, batch_error, batch_success
 from trackrecord.config import Settings
 from trackrecord.ingest.storage import RawStore
 from trackrecord.llm import BudgetExceeded, cost_usd
@@ -21,7 +21,7 @@ def no_direct_calls(kwargs: dict[str, object]) -> object:
 async def submit(
     sessionmaker: async_sessionmaker[AsyncSession],
     settings: Settings,
-    client: FakeClaude,
+    client: FakeLlmClient,
     filing_id: int,
     budget: str = "30",
 ) -> batch.Submitted:
@@ -41,7 +41,7 @@ async def test_submit_and_collect(
     settings: Settings,
     release_id: int,
 ) -> None:
-    client = FakeClaude(no_direct_calls)
+    client = FakeLlmClient(no_direct_calls)
     submitted = await submit(sessionmaker, settings, client, release_id)
 
     assert submitted.requests == 2
@@ -88,7 +88,7 @@ async def test_submit_respects_the_budget(
     settings: Settings,
     release_id: int,
 ) -> None:
-    client = FakeClaude(no_direct_calls)
+    client = FakeLlmClient(no_direct_calls)
 
     with pytest.raises(BudgetExceeded):
         await submit(sessionmaker, settings, client, release_id, budget="0.0001")

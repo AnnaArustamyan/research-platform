@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # When set, every API request must send `Authorization: Bearer <token>`.
     api_token: str | None = None
 
-    # Claude. The API key is read by the SDK from ANTHROPIC_API_KEY.
+    # LLM (Anthropic SDK). The API key is read from ANTHROPIC_API_KEY.
     llm_monthly_budget_usd: Decimal = Decimal(30)
     extraction_model: str = "claude-haiku-5-5"
     extraction_effort: Literal["low", "medium", "high"] = "medium"
