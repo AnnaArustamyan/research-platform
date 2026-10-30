@@ -1,0 +1,44 @@
+# Companies tracked in v1.0. Selection rule (docs/design.md §4.2): US-listed
+# semiconductor companies that file 8-K/10-Q/10-K (not 6-K/20-F) and publish
+# quarterly guidance. `cik` is the SEC Central Index Key.
+companies:
+  - {ticker: "NVDA", cik: 1045810}
+  - {ticker: "AMD", cik: 2488}
+  - {ticker: "INTC", cik: 50863}
+  - {ticker: "AVGO", cik: 1730168}
+  - {ticker: "QCOM", cik: 804328}
+  - {ticker: "TXN", cik: 97476}
+  - {ticker: "MU", cik: 723125}
+  - {ticker: "AMAT", cik: 6951}
+  - {ticker: "LRCX", cik: 707549}
+  - {ticker: "KLAC", cik: 319201}
+  - {ticker: "ADI", cik: 6281}
+  - {ticker: "MRVL", cik: 1835632}
+  - {ticker: "NXPI", cik: 1413447}
+  - {ticker: "ON", cik: 1097864}
+  - {ticker: "MCHP", cik: 827054}
+  - {ticker: "MPWR", cik: 1280452}
+  - {ticker: "TER", cik: 97210}
+  - {ticker: "SWKS", cik: 4127}
+  - {ticker: "ENTG", cik: 1101302}
+  - {ticker: "SNPS", cik: 883241}
+  - {ticker: "CDNS", cik: 813672}
+  - {ticker: "WOLF", cik: 895419}
+  - {ticker: "LSCC", cik: 855658}
+  - {ticker: "RMBS", cik: 917273}
+  - {ticker: "SLAB", cik: 1038074}
+  - {ticker: "SYNA", cik: 817720}
+  - {ticker: "CRUS", cik: 772406}
+  - {ticker: "POWI", cik: 833640}
+  - {ticker: "DIOD", cik: 29002}
+  - {ticker: "AMKR", cik: 1047127}
+  - {ticker: "FORM", cik: 1039399}
+  - {ticker: "ONTO", cik: 704532}
+  - {ticker: "ACLS", cik: 1113232}
+  - {ticker: "MKSI", cik: 1049502}
+  - {ticker: "COHU", cik: 21535}
+  - {ticker: "UCTT", cik: 1275014}
+  - {ticker: "SITM", cik: 1451809}
+  - {ticker: "CRDO", cik: 1807794}
+  - {ticker: "MTSI", cik: 1493594}
+  - {ticker: "ALGM", cik: 866291}

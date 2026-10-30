@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg17
+        env:
+          POSTGRES_USER: trackrecord
+          POSTGRES_PASSWORD: trackrecord
+          POSTGRES_DB: trackrecord_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trackrecord"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TR_TEST_DATABASE_URL: postgresql+psycopg://trackrecord:trackrecord@localhost:5432/trackrecord_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run pyright
+      - name: Test
+        run: uv run pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t trackrecord-backend backend

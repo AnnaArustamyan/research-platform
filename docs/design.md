@@ -4,7 +4,7 @@
 > companies promise investors, checks those promises against what they later
 > report, and answers research questions with cited, code-computed numbers.
 
-Status: draft for review · Owner: Anna Arustamyan · Last updated: 2026-10-30
+Status: approved; M1 done · Owner: Anna Arustamyan · Last updated: 2026-10-30
 
 ---
 
@@ -97,9 +97,9 @@ laptop is off.
 | Language | Python 3.12, managed with `uv` | Best ecosystem for data and LLM work |
 | API | FastAPI + Pydantic v2 | Typed, async, OpenAPI for free, SSE streaming |
 | DB | PostgreSQL 17 + pgvector, SQLAlchemy 2 + Alembic | One database for relational data, vectors and full-text search |
-| Queue | Procrastinate (Postgres-backed) | No extra broker; enqueue in the same transaction as the data change; periodic tasks, retries and dedup locks built in. Redis/RabbitMQ add moving parts we don't need at this scale. |
-| EDGAR access | `httpx` with a rate limiter; evaluate `edgartools` in M1 | SEC asks for ≤10 req/s and a contact User-Agent |
-| Parsing | `selectolax` / `lxml` for HTML, custom table extractor | Press releases and filings are messy HTML |
+| Queue | Procrastinate (Postgres-backed) | No extra broker; periodic tasks, retries and queueing locks (one pending job per company or filing) built in. Redis/RabbitMQ add moving parts we don't need at this scale. |
+| EDGAR access | Thin custom client on `httpx` with a rate limiter and retries | SEC asks for ≤10 req/s and a contact User-Agent. We only need four endpoints, so a dependency like `edgartools` isn't worth it. |
+| Parsing | `selectolax` (lexbor engine) for HTML, custom table extractor | Press releases and filings are messy HTML |
 | Embeddings / rerank | Local via `fastembed` (bge-family, final model picked by eval) | Zero API cost |
 | Keyword search | Postgres full-text search (`tsvector`); ParadeDB `pg_search` if real BM25 measurably helps | Start simple, upgrade on evidence |
 | LLM | Claude via the official `anthropic` SDK; structured outputs with Pydantic | See §7 for model routing |
@@ -124,15 +124,24 @@ Earnings releases are 8-Ks with **Item 2.02** (Results of Operations), with the
 release attached as **EX-99.1**. They contain both the actuals for the quarter
 just ended and the guidance for the next one.
 
-### 4.2 Company universe (proposed, to confirm in M1)
+### 4.2 Company universe
 
 NVDA, AMD, INTC, AVGO, QCOM, TXN, MU, AMAT, LRCX, KLAC, ADI, MRVL, NXPI, ON,
-MCHP, MPWR, TER, SWKS, QRVO, ENTG, GFS, ARM, SNPS, CDNS, WOLF, LSCC, RMBS,
-SLAB, SYNA, CRUS, POWI, DIOD, AMKR, FORM, ONTO, ACLS, MKSI, COHU, UCTT, SITM.
+MCHP, MPWR, TER, SWKS, ENTG, SNPS, CDNS, WOLF, LSCC, RMBS, SLAB, SYNA, CRUS,
+POWI, DIOD, AMKR, FORM, ONTO, ACLS, MKSI, COHU, UCTT, SITM, CRDO, MTSI, ALGM
+(`backend/src/trackrecord/universe.yaml`).
 
-Selection rule: US-listed filers of 8-K/10-Q (foreign 6-K/20-F filers such as
-TSM and ASML are excluded in v1.0) that publish numeric quarterly guidance.
-Companies that don't guide are swapped out during M1 data checks.
+Selection rule: US-listed filers of 8-K/10-Q (foreign 6-K/20-F filers are
+excluded in v1.0) that publish numeric quarterly guidance.
+
+M1 data checks changed the proposed list:
+- **ARM** and **GFS** were dropped because they file 6-K/20-F;
+- **QRVO** was dropped because it no longer trades after its merger with Skyworks;
+- **CRDO**, **MTSI** and **ALGM** were added in their place.
+
+`trackrecord check-guidance` sets `companies.guides_quarterly` with a keyword
+heuristic over the 8 most recent releases. M2 replaces it with the real
+extractor's output.
 
 ### 4.3 Metric dictionary (v1.0)
 
@@ -151,6 +160,17 @@ and come from the reconciliation tables of the next press release.
 
 **Q4 rule:** many companies don't file a 10-Q for Q4, so the Q4 actual is the
 10-K annual value minus the 9-month year-to-date value from the Q3 10-Q.
+
+**Fiscal calendar** (`ingest/periods.py`): built from filing dates, not from
+the `fy`/`fp` labels in SEC's XBRL data, which M1 found to be wrong for several
+companies (e.g. Skyworks' December 2021 quarter is labeled Q3 of fiscal 2021,
+but it is Q1 of fiscal 2022). The rules:
+- each 10-K ends a fiscal year;
+- each 10-Q is Q1–Q3, depending on how far it falls after the previous year end;
+- a fiscal year is named after the calendar year it ends in, except 52/53-week
+  years ending in the first week of January;
+- future quarters are projected from the most recent pattern, and marked
+  estimated until a filing confirms them.
 
 ### 4.4 Schema (main tables)
 
@@ -429,8 +449,8 @@ Each milestone ends with working, tested software merged to `main`.
 | LLM cost creep | Hard budget cap, cost ledger, cheapest model that passes each eval |
 | EDGAR rate limits / format changes | Rate limiter, retries with backoff, raw HTML cache, parser versioning |
 
-Open questions to settle during M1:
-1. Confirm the 40-company list after checking which companies give numeric
-   quarterly guidance.
-2. `edgartools` vs. a thin custom client for EDGAR access.
-3. The exact embedding model (decided by the retrieval eval in M5).
+| A company names fiscal years differently from the convention in §4.3 | Cross-check fiscal year labels against press-release headlines ("third quarter of fiscal 2027") in M2 |
+
+Settled in M1: the company list (§4.2) and a custom EDGAR client (§3.1).
+
+Open: the exact embedding model (decided by the retrieval eval in M5).
