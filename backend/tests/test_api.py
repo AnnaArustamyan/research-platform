@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -7,12 +8,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.conftest import FakeEdgar
+from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeClaude, promise, response
 from trackrecord import worker
 from trackrecord.api.app import create_app
 from trackrecord.config import Settings
 from trackrecord.ingest.runner import run_company_sync
+from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import seed_companies
+from trackrecord.llm import Llm
 from trackrecord.models import Company
+from trackrecord.promises.extract import extract_filing
+from trackrecord.promises.schema import ExtractionOutput
 
 pytestmark = pytest.mark.db
 
@@ -122,3 +128,51 @@ async def test_token_is_required_when_configured(settings: Settings, synced: Non
         assert (await client.get("/companies", headers=headers)).status_code == 401
         headers = {"Authorization": "Bearer s3cret"}
         assert (await client.get("/companies", headers=headers)).status_code == 200
+
+
+@pytest.fixture
+async def extracted(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
+) -> None:
+    output = ExtractionOutput(
+        promises=[*NVDA_Q2FY27_OUTPUT.promises, promise(metric="gross_margin", confidence=0.4)]
+    )
+    llm = Llm(FakeClaude(lambda kwargs: response(output)), sessionmaker, Decimal(30))
+    await extract_filing(
+        sessionmaker,
+        llm,
+        RawStore(settings.raw_dir),
+        release_id,
+        model="claude-haiku-5-5",
+        effort="medium",
+    )
+
+
+async def test_promises_review_and_spend(settings: Settings, extracted: None) -> None:
+    async with api_client(settings) as client:
+        promises = (await client.get("/companies/NVDA/promises")).json()
+        assert len(promises) == 7
+        revenue = next(p for p in promises if p["metric_name"] == "Revenue")
+        assert revenue["target_period"]["label"] == "FY2027 Q3"
+        assert float(revenue["low"]) == 105.84e9
+
+        queue = (await client.get("/review")).json()
+        assert [p["review_reasons"] for p in queue] == [
+            ["unit usd unexpected for gross_margin", "low confidence 0.40"]
+        ]
+
+        reviewed = await client.post(
+            f"/promises/{queue[0]['id']}/review", json={"status": "rejected"}
+        )
+        assert reviewed.json()["review_status"] == "rejected"
+        assert (await client.get("/review")).json() == []
+        assert len((await client.get("/companies/NVDA/promises")).json()) == 6
+        bad_status = await client.post(f"/promises/{queue[0]['id']}/review", json={"status": "x"})
+        assert bad_status.status_code == 422
+        assert (
+            await client.post("/promises/999999/review", json={"status": "accepted"})
+        ).status_code == 404
+
+        spend = (await client.get("/llm/spend")).json()
+        assert float(spend["month_to_date_usd"]) > 0
+        assert float(spend["monthly_budget_usd"]) == 30

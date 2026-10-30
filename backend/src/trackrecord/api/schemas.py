@@ -1,10 +1,19 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from trackrecord.models import FilingKind, SyncStatus
+from trackrecord.models import (
+    Basis,
+    FilingKind,
+    Metric,
+    PromiseKind,
+    PromiseStatus,
+    ReviewStatus,
+    SyncStatus,
+    Unit,
+)
 
 
 class Schema(BaseModel):
@@ -88,3 +97,43 @@ class SyncRequest(BaseModel):
 class SyncQueued(BaseModel):
     queued: list[str]
     already_queued: list[str]
+
+
+class PromiseOut(Schema):
+    id: int
+    company_id: int
+    filing_id: int
+    document_id: int
+    issued_at: date
+    target_fiscal_year: int
+    target_fiscal_quarter: int | None
+    target_period: FiscalPeriodOut | None
+    metric: Metric
+    metric_name: str
+    basis: Basis
+    kind: PromiseKind
+    unit: Unit | None
+    low: Decimal | None
+    high: Decimal | None
+    approximate: bool
+    relative_reference: str | None
+    change_low: Decimal | None
+    change_high: Decimal | None
+    interpretation: str | None
+    quote: str
+    span_start: int
+    span_end: int
+    confidence: float
+    status: PromiseStatus
+    review_status: ReviewStatus
+    review_reasons: list[str]
+    superseded_by_id: int | None
+
+
+class ReviewRequest(BaseModel):
+    status: Literal[ReviewStatus.ACCEPTED, ReviewStatus.REJECTED]
+
+
+class SpendOut(BaseModel):
+    month_to_date_usd: Decimal
+    monthly_budget_usd: Decimal

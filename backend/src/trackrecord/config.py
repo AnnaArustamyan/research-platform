@@ -1,6 +1,8 @@
 from datetime import date
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +26,13 @@ class Settings(BaseSettings):
 
     # When set, every API request must send `Authorization: Bearer <token>`.
     api_token: str | None = None
+
+    # Claude. The API key is read by the SDK from ANTHROPIC_API_KEY.
+    llm_monthly_budget_usd: Decimal = Decimal(30)
+    extraction_model: str = "claude-haiku-5-5"
+    extraction_effort: Literal["low", "medium", "high"] = "medium"
+    # Extract promises from new earnings releases in the background worker.
+    auto_extract: bool = True
 
     @property
     def libpq_url(self) -> str:

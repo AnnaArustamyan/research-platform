@@ -4,7 +4,7 @@
 > companies promise investors, checks those promises against what they later
 > report, and answers research questions with cited, code-computed numbers.
 
-Status: approved; M1 done · Owner: Anna Arustamyan · Last updated: 2026-10-30
+Status: approved; M1 done, M2 built (awaiting first eval run) · Owner: Anna Arustamyan · Last updated: 2026-10-30
 
 ---
 
@@ -234,22 +234,36 @@ class Qualitative(BaseModel): text: str   # stored and shown, never scored
 
 ### 5.2 Extraction pipeline
 
-1. **Locate:** a rule-based pass finds the outlook section ("Outlook",
-   "Business Outlook", "Guidance", "expects") and its tables; if none is found,
-   the whole release goes to the model.
-2. **Extract:** one structured-output LLM call returns `list[PromiseDraft]`.
-   The prompt contains the metric dictionary, the issuing company's fiscal
-   calendar, and the conventions below.
-3. **Validate (code, not LLM):**
-   - the quote exists verbatim in the document (this rejects invented promises);
-   - numbers in the structured fields appear in the quote;
-   - the target period is after the issuing period; units are consistent;
-   - `low ≤ high`.
-4. **Supersede:** a newer promise for the same company, metric, basis and
-   period marks the older one `superseded` (mid-quarter guidance updates).
-5. **Route by confidence:** below a threshold set from the eval (initially
-   0.8), or `interpreted=True`, the draft goes to the **review queue** in the
-   app instead of being auto-accepted.
+1. **Text:** each press-release exhibit (EX-99.x) is converted to plain text
+   that keeps its structure (`documents.py`): paragraphs and table rows on
+   their own lines, table cells separated by " | ", and quotes and dashes
+   normalized to ASCII. The whole release goes to the model. A release is
+   about 5–10K tokens, so finding the outlook section first would save little
+   and risk missing guidance in quotes or footnotes.
+2. **Extract:** one structured-output call per exhibit (`promises/schema.py`,
+   `promises/prompt.py`). The model returns each statement in its *literal*
+   shape: numbers as written, with their scale, and the kind (range, point,
+   plus/minus, bound, relative, qualitative). It is told which period the
+   release reports and which period comes next. Turning statements into
+   absolute ranges is left to code.
+3. **Validate (code, not LLM)** (`promises/normalize.py`):
+   - the quote exists in the document, ignoring case, whitespace and " | ".
+     This rejects invented promises.
+   - Numbers in the structured fields appear in the quote.
+   - The target period is after the reported period.
+   - Units fit the metric, and `low ≤ high`.
+4. **Deduplicate:** releases with a CFO commentary exhibit repeat the guidance.
+   Within a filing, one promise is kept per metric, basis and period.
+5. **Supersede:** for each metric, basis and target period, the latest
+   guidance stands and earlier guidance is marked `superseded`. This is
+   recomputed without regard to order, so batch results can arrive in any order.
+6. **Route by confidence:** a promise goes to the **review queue** instead of
+   being auto-accepted when:
+   - its confidence is below 0.8;
+   - a convention was applied;
+   - a number is missing from the quote;
+   - its unit is unexpected;
+   - or its target period isn't in the calendar.
 
 **Conventions** (documented, applied explicitly, flagged `interpreted`):
 
@@ -374,7 +388,7 @@ are handled explicitly and recorded, never silently retried forever.
 
 | Suite | Data | Metric | v1.0 target* |
 |---|---|---|---|
-| Extraction | ~200 hand-labeled promises from ~40 releases across companies and years | Precision, recall, field-level accuracy | P ≥ 0.95, R ≥ 0.95 |
+| Extraction | `backend/evals/extraction/golden.yaml`: 98 promises from 19 releases (18 companies, 2022–2026, one without guidance); growing toward ~200 from the review queue | Precision, recall, value accuracy, calendar agreement | P ≥ 0.95, R ≥ 0.95 |
 | Resolution | Unit tests per rule + ~100 labeled promise→outcome pairs | Exact outcome match | 100 % unit, ≥ 98 % labeled |
 | Actuals parser | Press-release vs. XBRL agreement on GAAP metrics | Agreement rate | ≥ 99 % |
 | Retrieval | ~80 question → relevant-chunk pairs | Recall@10, MRR | Recall@10 ≥ 0.9 |
@@ -419,7 +433,7 @@ Each milestone ends with working, tested software merged to `main`.
 | # | Milestone | Done when |
 |---|---|---|
 | M1 | **Foundation**: repo layout, Docker Compose, schema + migrations, EDGAR sync for 40 companies, XBRL facts, fiscal periods, CI | 5 years of filings and XBRL facts stored for all companies, idempotent re-sync, CI green |
-| M2 | **Promise extraction**: section locator, extractor, validation, supersession, golden set + extraction eval | Extraction eval meets target; backfill complete |
+| M2 | **Promise extraction**: extractor, validation, supersession, review queue, golden set + extraction eval | Extraction eval meets target; backfill complete |
 | M3 | **Resolution & credibility**: actuals parser (GAAP + non-GAAP), XBRL confirmation, Q4 rule, outcomes, scores | Resolution suites pass; credibility for all companies |
 | M4 | **Desktop app I**: Tauri shell, API client, dashboard, company, promise detail, review queue | Daily-usable app over the promise data |
 | M5 | **Research agent**: chunking, embeddings, hybrid retrieval, tools, verifier, streaming UI | Retrieval + research QA evals meet target |

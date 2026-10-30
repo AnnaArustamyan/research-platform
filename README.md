@@ -11,7 +11,8 @@ See [docs/design.md](docs/design.md) for the v1.0 design.
 | Milestone | State |
 |---|---|
 | M1 Foundation: EDGAR sync, XBRL facts, fiscal calendars, API, worker, CI | done |
-| M2 Promise extraction | next |
+| M2 Promise extraction: extractor, validation, review queue, cost ledger, eval | built; first eval run needs a Claude API key |
+| M3 Resolution and credibility | next |
 
 ## Run it
 
@@ -42,6 +43,18 @@ uv run trackrecord check-guidance     # flag companies that publish quarterly gu
 uv run trackrecord api --reload
 ```
 
+Promise extraction (needs `ANTHROPIC_API_KEY`; spend is capped by `TR_LLM_MONTHLY_BUDGET_USD`):
+
+```sh
+uv run trackrecord eval-extraction --run        # extract the 19 golden releases and score them
+uv run trackrecord extract --batch              # backfill every release via the Batch API
+uv run trackrecord collect                      # store finished batch results (re-run until done)
+uv run trackrecord spend                        # month-to-date Claude spend
+```
+
+After that, the worker extracts each new earnings release on its own. Promises
+it is unsure about appear at `GET /review`.
+
 Checks (the same ones CI runs):
 
 ```sh
@@ -60,10 +73,15 @@ backend/
   src/trackrecord/
     edgar/        SEC EDGAR client (rate limit, retries) and response parsers
     ingest/       sync of filings, facts, fiscal calendars and documents; data checks
+    promises/     guidance extraction: schema, prompt, validation, batch backfill
+    evals/        scoring against hand-labeled data
+    documents.py  HTML to structured plain text
+    llm.py        Claude calls with a cost ledger and monthly budget
     api/          FastAPI app
     worker.py     background jobs (procrastinate)
     models.py     database schema
     universe.yaml the 40 tracked companies
+  evals/          golden datasets (extraction/golden.yaml)
   migrations/     Alembic migrations
   tests/          unit and database tests, with trimmed real EDGAR fixtures
 docs/design.md    v1.0 design

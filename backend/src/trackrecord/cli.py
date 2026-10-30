@@ -1,21 +1,29 @@
 """Command-line entry point: `trackrecord --help`."""
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Annotated
 
+import anthropic
 import typer
 import uvicorn
-from sqlalchemy import select
+from sqlalchemy import Select, select
 
 from trackrecord.config import get_settings
 from trackrecord.db import make_engine, make_sessionmaker, session_scope
 from trackrecord.edgar.client import EdgarClient
+from trackrecord.evals.extraction import golden_filing_ids, load_golden, score_database
 from trackrecord.ingest.checks import check_guidance
 from trackrecord.ingest.runner import run_company_sync, run_document_fetch
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import filings_missing_documents, load_universe, seed_companies
+from trackrecord.llm import has_claude_credentials, make_llm, month_spend
 from trackrecord.models import Company
+from trackrecord.promises.batch import collect as collect_batches
+from trackrecord.promises.batch import submit as submit_batch
+from trackrecord.promises.extract import ExtractionStats, extract_filing, releases_to_extract
 
 cli = typer.Typer(no_args_is_help=True, help="Track Record backend tools.")
 
@@ -100,6 +108,165 @@ def check_guidance_command() -> None:
                     f"/{result.releases_checked} recent releases -> {result.guides_quarterly}"
                 )
         await engine.dispose()
+
+    asyncio.run(run())
+
+
+def _companies_stmt(tickers: list[str] | None) -> Select[int]:
+    stmt = select(Company.id).where(Company.active)
+    if tickers:
+        stmt = stmt.where(Company.ticker.in_([t.upper() for t in tickers]))
+    return stmt
+
+
+@cli.command()
+def extract(
+    tickers: Annotated[
+        list[str] | None, typer.Argument(help="Default: all active companies")
+    ] = None,
+    limit: Annotated[int | None, typer.Option(help="At most this many releases")] = None,
+    batch: Annotated[bool, typer.Option(help="Use the Batch API (50% cheaper, async)")] = False,
+) -> None:
+    """Extract promises from earnings releases not yet processed by this extractor."""
+
+    async def run() -> None:
+        settings = get_settings()
+        if not has_claude_credentials():
+            raise typer.BadParameter("set ANTHROPIC_API_KEY to extract promises")
+        engine = make_engine(settings.database_url)
+        sessionmaker = make_sessionmaker(engine)
+        store = RawStore(settings.raw_dir)
+        async with sessionmaker() as session:
+            company_ids = list((await session.scalars(_companies_stmt(tickers))).all())
+            filing_ids = await releases_to_extract(session, company_ids)
+        filing_ids = filing_ids[:limit] if limit else filing_ids
+        typer.echo(f"{len(filing_ids)} releases to extract")
+
+        if batch:
+            submitted = await submit_batch(
+                sessionmaker,
+                anthropic.AsyncAnthropic(),
+                store,
+                filing_ids,
+                model=settings.extraction_model,
+                effort=settings.extraction_effort,
+                monthly_budget_usd=settings.llm_monthly_budget_usd,
+            )
+            typer.echo(
+                f"submitted batch {submitted.batch_id}: {submitted.requests} requests, "
+                f"~${submitted.estimated_cost_usd:.2f}. Run `trackrecord collect` later."
+            )
+        else:
+            llm = make_llm(sessionmaker, settings)
+            total = ExtractionStats()
+            for filing_id in filing_ids:
+                total.add(
+                    await extract_filing(
+                        sessionmaker,
+                        llm,
+                        store,
+                        filing_id,
+                        model=settings.extraction_model,
+                        effort=settings.extraction_effort,
+                    )
+                )
+            _echo_stats(total)
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+@cli.command()
+def collect() -> None:
+    """Store the results of finished extraction batches."""
+
+    async def run() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        result = await collect_batches(make_sessionmaker(engine), anthropic.AsyncAnthropic())
+        typer.echo(
+            f"collected {result.batches} batches ({result.still_running} still running, "
+            f"{result.failed_requests} failed requests)"
+        )
+        if result.stats:
+            _echo_stats(result.stats)
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+def _echo_stats(stats: ExtractionStats) -> None:
+    typer.echo(
+        f"extracted {stats.extracted}, stored {stats.stored}, duplicates {stats.duplicates}, "
+        f"needs review {stats.needs_review}, rejected {len(stats.rejected)}, "
+        f"targets other than the next quarter {stats.not_next_quarter}"
+    )
+    for reason in stats.rejected:
+        typer.echo(f"  rejected: {reason}")
+
+
+@cli.command("eval-extraction")
+def eval_extraction(
+    run: Annotated[
+        bool, typer.Option(help="Re-extract the golden filings first (costs tokens)")
+    ] = False,
+    output: Annotated[Path | None, typer.Option(help="Write the full report as JSON")] = None,
+) -> None:
+    """Score extracted promises against evals/extraction/golden.yaml."""
+
+    async def main() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        sessionmaker = make_sessionmaker(engine)
+        golden = load_golden()
+        if run:
+            if not has_claude_credentials():
+                raise typer.BadParameter("set ANTHROPIC_API_KEY to run the extractor")
+            llm = make_llm(sessionmaker, settings)
+            async with sessionmaker() as session:
+                filing_ids = await golden_filing_ids(session, golden)
+            for filing_id in filing_ids:
+                await extract_filing(
+                    sessionmaker,
+                    llm,
+                    RawStore(settings.raw_dir),
+                    filing_id,
+                    model=settings.extraction_model,
+                    effort=settings.extraction_effort,
+                    force=True,
+                )
+        async with sessionmaker() as session:
+            report = await score_database(session, golden)
+        await engine.dispose()
+
+        for f in report.filings:
+            problems = [
+                *(f"missing {x}" for x in f.false_negatives),
+                *(f"extra {x}" for x in f.false_positives),
+                *(f"wrong value {x}" for x in f.value_errors),
+                *([f.calendar_error] if f.calendar_error else []),
+            ]
+            typer.echo(f"{f.ticker:5} {f.accession}: {'ok' if not problems else ''}")
+            for problem in problems:
+                typer.echo(f"    {problem}")
+        typer.echo(json.dumps(report.summary()))
+        if output:
+            output.write_text(json.dumps(report.to_dict(), indent=2))
+
+    asyncio.run(main())
+
+
+@cli.command()
+def spend() -> None:
+    """LLM spend this month against the budget."""
+
+    async def run() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        async with make_sessionmaker(engine)() as session:
+            spent = await month_spend(session)
+        await engine.dispose()
+        typer.echo(f"${spent:.4f} of ${settings.llm_monthly_budget_usd} this month")
 
     asyncio.run(run())
 

@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 from functools import cache
 
+import anthropic
 import procrastinate
 from procrastinate.exceptions import AlreadyEnqueued
 from sqlalchemy import select
@@ -21,7 +22,9 @@ from trackrecord.edgar.client import EdgarClient
 from trackrecord.ingest.runner import run_company_sync, run_document_fetch
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import filings_missing_documents
-from trackrecord.models import Company
+from trackrecord.llm import Llm, has_claude_credentials, make_llm
+from trackrecord.models import Company, Filing, FilingKind
+from trackrecord.promises.extract import extract_filing
 
 log = logging.getLogger(__name__)
 
@@ -37,20 +40,23 @@ class Resources:
     sessionmaker: async_sessionmaker[AsyncSession]
     client: EdgarClient
     store: RawStore
+    llm: Llm | None  # None without Claude credentials: extraction is skipped
 
 
 @cache
 def resources() -> Resources:
     """Per-process resources, shared by all jobs so the EDGAR rate limit is shared too."""
     settings = get_settings()
+    sessionmaker = make_sessionmaker(make_engine(settings.database_url))
     return Resources(
         settings=settings,
-        sessionmaker=make_sessionmaker(make_engine(settings.database_url)),
+        sessionmaker=sessionmaker,
         client=EdgarClient(
             settings.sec_user_agent,
             max_requests_per_second=settings.sec_max_requests_per_second,
         ),
         store=RawStore(settings.raw_dir),
+        llm=make_llm(sessionmaker, settings) if has_claude_credentials() else None,
     )
 
 
@@ -59,6 +65,15 @@ async def defer_company_sync(company_id: int) -> int | None:
         return await sync_company_task.configure(
             queueing_lock=f"sync-company-{company_id}"
         ).defer_async(company_id=company_id)
+    except AlreadyEnqueued:
+        return None
+
+
+async def defer_extraction(filing_id: int) -> int | None:
+    try:
+        return await extract_promises_task.configure(
+            queueing_lock=f"extract-promises-{filing_id}"
+        ).defer_async(filing_id=filing_id)
     except AlreadyEnqueued:
         return None
 
@@ -95,6 +110,35 @@ async def sync_company_task(company_id: int) -> None:
 async def fetch_documents_task(filing_id: int) -> None:
     r = resources()
     await run_document_fetch(r.sessionmaker, r.client, r.store, filing_id)
+    if r.llm is not None and r.settings.auto_extract:
+        async with r.sessionmaker() as session:
+            filing = await session.get_one(Filing, filing_id)
+        if filing.kind == FilingKind.EARNINGS_RELEASE:
+            await defer_extraction(filing_id)
+
+
+@app.task(
+    name="extract_promises",
+    queue="llm",
+    # Budget errors are not retried: they persist until the next month or a higher cap.
+    retry=procrastinate.RetryStrategy(
+        max_attempts=3, exponential_wait=60, retry_exceptions={anthropic.APIError}
+    ),
+)
+async def extract_promises_task(filing_id: int) -> None:
+    r = resources()
+    if r.llm is None:
+        log.warning("no Claude credentials, skipping extraction of filing %s", filing_id)
+        return
+    stats = await extract_filing(
+        r.sessionmaker,
+        r.llm,
+        r.store,
+        filing_id,
+        model=r.settings.extraction_model,
+        effort=r.settings.extraction_effort,
+    )
+    log.info("extracted filing %s: %s", filing_id, stats)
 
 
 # EDGAR publishes new filings throughout the day; every two hours is plenty.

@@ -10,12 +10,16 @@ import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from trackrecord.config import Settings
 from trackrecord.db import make_engine, make_sessionmaker
 from trackrecord.edgar.client import EdgarClient
+from trackrecord.ingest.runner import run_company_sync, run_document_fetch
+from trackrecord.ingest.storage import RawStore
+from trackrecord.ingest.sync import seed_companies
+from trackrecord.models import Company, Filing
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BACKEND = Path(__file__).parent.parent
@@ -70,6 +74,8 @@ class FakeEdgar:
             else:
                 entries = [(form, "report.htm"), ("EX-31.1", "cert.htm")]
             return httpx.Response(200, text=index_html(entries))
+        if path.endswith(("/pr.htm", "/cfo.htm")):
+            return httpx.Response(200, text=load_fixture("nvda_q2fy27_release.htm"))
         if path.startswith("/Archives/edgar/data/"):
             return httpx.Response(200, content=f"<html>{path}</html>".encode())
         return httpx.Response(404)
@@ -118,7 +124,8 @@ async def engine(migrated_database: str) -> AsyncIterator[AsyncEngine]:
 @pytest.fixture
 async def sessionmaker(engine: AsyncEngine) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE companies, procrastinate_jobs RESTART IDENTITY CASCADE"))
+        tables = "companies, llm_calls, llm_batches, procrastinate_jobs"
+        await conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
     yield make_sessionmaker(engine)
 
 
@@ -130,3 +137,24 @@ def settings(tmp_path: Path) -> Settings:
         data_dir=tmp_path,
         history_start=date(2024, 1, 1),
     )
+
+
+RELEASE = "0001045810-26-000073"  # NVIDIA Q2 FY2027 results, filed 2026-08-26
+
+
+@pytest.fixture
+async def release_id(
+    sessionmaker: async_sessionmaker[AsyncSession], fake_edgar: FakeEdgar, settings: Settings
+) -> int:
+    async with sessionmaker() as session:
+        await seed_companies(session, [{"ticker": "NVDA", "cik": 1045810}])
+        await session.commit()
+        company_id = (await session.scalars(select(Company.id))).one()
+    async with fake_edgar.client() as client:
+        await run_company_sync(sessionmaker, client, settings, company_id)
+        async with sessionmaker() as session:
+            filing_id = (
+                await session.scalars(select(Filing.id).where(Filing.accession == RELEASE))
+            ).one()
+        await run_document_fetch(sessionmaker, client, RawStore(settings.raw_dir), filing_id)
+    return filing_id

@@ -1,0 +1,207 @@
+# Hand-labeled guidance for the extraction eval (docs/design.md §8).
+#
+# Status: first draft, labeled by Claude from the release text and awaiting human
+# review. Each filing lists every guidance statement on a dictionary metric,
+# normalized the way trackrecord.promises.normalize does it:
+# - values are absolute (USD, percent, USD per share); a point has low == high;
+# - "+/- 1%" on a percentage is percentage points, not 1% of the value;
+# - revenue has a single basis; "unspecified" is scored as "gaap";
+# - guidance on other quantities (segment revenue, capex, share count) is left out.
+#
+# reported: the period the release reports, as our fiscal calendar should label it.
+filings:
+  - accession: 0001045810-23-000014
+    ticker: NVDA
+    reported: FY2023 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2024 Q1, low: 6.37e9, high: 6.63e9}
+      - {metric: gross_margin, basis: gaap, period: FY2024 Q1, low: 63.6, high: 64.6}
+      - {metric: gross_margin, basis: non_gaap, period: FY2024 Q1, low: 66.0, high: 67.0}
+      - {metric: operating_expenses, basis: gaap, period: FY2024 Q1, low: 2.53e9, high: 2.53e9}
+      - {metric: operating_expenses, basis: non_gaap, period: FY2024 Q1, low: 1.78e9, high: 1.78e9}
+      - {metric: tax_rate, basis: gaap, period: FY2024 Q1, low: 12.0, high: 14.0}
+      - {metric: tax_rate, basis: non_gaap, period: FY2024 Q1, low: 12.0, high: 14.0}
+
+  - accession: 0000002488-22-000014
+    ticker: AMD
+    reported: FY2021 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2022 Q1, low: 4.9e9, high: 5.1e9}
+      - {metric: revenue, basis: unspecified, period: FY2022, low: 21.5e9, high: 21.5e9}
+      - {metric: gross_margin, basis: non_gaap, period: FY2022, low: 51, high: 51}
+
+  - accession: 0000050863-24-000008
+    ticker: INTC
+    reported: FY2023 Q4
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2024 Q1, low: 12.2e9, high: 13.2e9}
+      - {metric: gross_margin, basis: gaap, period: FY2024 Q1, low: 40.7, high: 40.7}
+      - {metric: gross_margin, basis: non_gaap, period: FY2024 Q1, low: 44.5, high: 44.5}
+      - {metric: tax_rate, basis: gaap, period: FY2024 Q1, low: -43, high: -43}
+      - {metric: tax_rate, basis: non_gaap, period: FY2024 Q1, low: 13, high: 13}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q1, low: -0.25, high: -0.25}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q1, low: 0.13, high: 0.13}
+
+  - accession: 0001730168-25-000009
+    ticker: AVGO
+    reported: FY2025 Q1
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2025 Q2, low: 14.9e9, high: 14.9e9}
+
+  - accession: 0000804328-23-000005
+    ticker: QCOM
+    reported: FY2023 Q1
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2023 Q2, low: 8.7e9, high: 9.5e9}
+      - {metric: eps_diluted, basis: gaap, period: FY2023 Q2, low: 1.53, high: 1.73}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2023 Q2, low: 2.05, high: 2.25}
+
+  - accession: 0000097476-22-000004
+    ticker: TXN
+    reported: FY2021 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2022 Q1, low: 4.50e9, high: 4.90e9}
+      - {metric: eps_diluted, basis: unspecified, period: FY2022 Q1, low: 2.01, high: 2.29}
+      - {metric: tax_rate, basis: unspecified, period: FY2022, low: 14, high: 14}
+
+  - accession: 0000723125-24-000004
+    ticker: MU
+    reported: FY2024 Q2
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2024 Q3, low: 6.40e9, high: 6.80e9}
+      - {metric: gross_margin, basis: gaap, period: FY2024 Q3, low: 24.0, high: 27.0}
+      - {metric: gross_margin, basis: non_gaap, period: FY2024 Q3, low: 25.0, high: 28.0}
+      - {metric: operating_expenses, basis: gaap, period: FY2024 Q3, low: 1.095e9, high: 1.125e9}
+      - {metric: operating_expenses, basis: non_gaap, period: FY2024 Q3, low: 975e6, high: 1.005e9}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q3, low: 0.10, high: 0.24}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q3, low: 0.38, high: 0.52}
+
+  - accession: 0000006951-23-000007
+    ticker: AMAT
+    reported: FY2023 Q1
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2023 Q2, low: 6.00e9, high: 6.80e9}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2023 Q2, low: 1.66, high: 2.02}
+
+  - accession: 0000707549-25-000009
+    ticker: LRCX
+    reported: FY2025 Q2
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2025 Q3, low: 4.35e9, high: 4.95e9}
+      - {metric: gross_margin, basis: gaap, period: FY2025 Q3, low: 46.9, high: 48.9}
+      - {metric: gross_margin, basis: non_gaap, period: FY2025 Q3, low: 47.0, high: 49.0}
+      - {metric: operating_margin, basis: gaap, period: FY2025 Q3, low: 30.9, high: 32.9}
+      - {metric: operating_margin, basis: non_gaap, period: FY2025 Q3, low: 31.0, high: 33.0}
+      - {metric: eps_diluted, basis: gaap, period: FY2025 Q3, low: 0.90, high: 1.10}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2025 Q3, low: 0.90, high: 1.10}
+
+  - accession: 0000319201-22-000004
+    ticker: KLAC
+    reported: FY2022 Q2
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2022 Q3, low: 2.1e9, high: 2.3e9}
+      - {metric: gross_margin, basis: gaap, period: FY2022 Q3, low: 59.5, high: 61.7}
+      - {metric: gross_margin, basis: non_gaap, period: FY2022 Q3, low: 61.5, high: 63.5}
+      - {metric: eps_diluted, basis: gaap, period: FY2022 Q3, low: 4.09, high: 4.99}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2022 Q3, low: 4.35, high: 5.25}
+
+  - accession: 0000006281-24-000032
+    ticker: ADI
+    reported: FY2024 Q1
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2024 Q2, low: 2.0e9, high: 2.2e9}
+      - {metric: operating_margin, basis: gaap, period: FY2024 Q2, low: 13.1, high: 17.1}
+      - {metric: operating_margin, basis: non_gaap, period: FY2024 Q2, low: 36.0, high: 38.0}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q2, low: 0.36, high: 0.56}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q2, low: 1.16, high: 1.36}
+
+  - accession: 0001835632-23-000007
+    ticker: MRVL
+    reported: FY2023 Q4
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2024 Q1, low: 1.235e9, high: 1.365e9}
+      - {metric: gross_margin, basis: gaap, period: FY2024 Q1, low: 44.1, high: 46.1}
+      - {metric: gross_margin, basis: non_gaap, period: FY2024 Q1, low: 60, high: 60}
+      - {metric: operating_expenses, basis: gaap, period: FY2024 Q1, low: 687e6, high: 687e6}
+      - {metric: operating_expenses, basis: non_gaap, period: FY2024 Q1, low: 460e6, high: 460e6}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q1, low: -0.22, high: -0.12}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q1, low: 0.24, high: 0.34}
+
+  - accession: 0001413447-26-000003
+    ticker: NXPI
+    reported: FY2025 Q4
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2026 Q1, low: 3.05e9, high: 3.25e9}
+      - {metric: gross_margin, basis: gaap, period: FY2026 Q1, low: 55.2, high: 56.3}
+      - {metric: gross_margin, basis: non_gaap, period: FY2026 Q1, low: 56.5, high: 57.5}
+      - {metric: operating_margin, basis: gaap, period: FY2026 Q1, low: 45.7, high: 46.8}
+      - {metric: operating_margin, basis: non_gaap, period: FY2026 Q1, low: 31.7, high: 33.6}
+      - {metric: tax_rate, basis: gaap, period: FY2026 Q1, low: 19.5, high: 20.5}
+      - {metric: tax_rate, basis: non_gaap, period: FY2026 Q1, low: 17.5, high: 18.5}
+      - {metric: eps_diluted, basis: gaap, period: FY2026 Q1, low: 4.01, high: 4.41}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2026 Q1, low: 2.77, high: 3.17}
+
+  - accession: 0001193125-24-023485
+    ticker: "ON"
+    reported: FY2023 Q4
+    promises:
+      - {metric: revenue, basis: gaap, period: FY2024 Q1, low: 1.8e9, high: 1.9e9}
+      - {metric: gross_margin, basis: gaap, period: FY2024 Q1, low: 44.4, high: 46.4}
+      - {metric: gross_margin, basis: non_gaap, period: FY2024 Q1, low: 44.5, high: 46.5}
+      - {metric: operating_expenses, basis: gaap, period: FY2024 Q1, low: 320e6, high: 335e6}
+      - {metric: operating_expenses, basis: non_gaap, period: FY2024 Q1, low: 305e6, high: 320e6}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q1, low: 0.94, high: 1.06}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q1, low: 0.98, high: 1.10}
+
+  - accession: 0000827054-22-000024
+    ticker: MCHP
+    reported: FY2022 Q3
+    # Operating expenses are guided as a percent of sales: not a dictionary metric.
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2022 Q4, low: 1.793e9, high: 1.845e9}
+      - {metric: gross_margin, basis: gaap, period: FY2022 Q4, low: 65.8, high: 66.1}
+      - {metric: gross_margin, basis: non_gaap, period: FY2022 Q4, low: 66.2, high: 66.6}
+      - {metric: operating_margin, basis: gaap, period: FY2022 Q4, low: 28.6, high: 29.5}
+      - {metric: operating_margin, basis: non_gaap, period: FY2022 Q4, low: 44.0, high: 44.8}
+      - {metric: eps_diluted, basis: gaap, period: FY2022 Q4, low: 0.66, high: 0.68}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2022 Q4, low: 1.22, high: 1.28}
+
+  - accession: 0000813672-26-000013
+    ticker: CDNS
+    reported: FY2025 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2026, low: 5.9e9, high: 6.0e9}
+      - {metric: operating_margin, basis: gaap, period: FY2026, low: 31.75, high: 32.75}
+      - {metric: operating_margin, basis: non_gaap, period: FY2026, low: 44.75, high: 45.75}
+      - {metric: eps_diluted, basis: gaap, period: FY2026, low: 4.95, high: 5.05}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2026, low: 8.05, high: 8.15}
+      # From the CFO commentary exhibit.
+      - {metric: revenue, basis: unspecified, period: FY2026 Q1, low: 1.42e9, high: 1.46e9}
+      - {metric: operating_margin, basis: gaap, period: FY2026 Q1, low: 30, high: 31}
+      - {metric: operating_margin, basis: non_gaap, period: FY2026 Q1, low: 44, high: 45}
+      - {metric: eps_diluted, basis: gaap, period: FY2026 Q1, low: 1.16, high: 1.22}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2026 Q1, low: 1.89, high: 1.95}
+
+  - accession: 0001157523-23-000173
+    ticker: POWI
+    reported: FY2022 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2023 Q1, low: 100e6, high: 110e6}
+      - {metric: gross_margin, basis: gaap, period: FY2023 Q1, low: 53, high: 53}
+      - {metric: gross_margin, basis: non_gaap, period: FY2023 Q1, low: 53.5, high: 53.5}
+      - {metric: operating_expenses, basis: gaap, period: FY2023 Q1, low: 49e6, high: 49.5e6}
+      - {metric: operating_expenses, basis: non_gaap, period: FY2023 Q1, low: 42e6, high: 42.5e6}
+
+  - accession: 0000950170-24-009126
+    ticker: TER
+    reported: FY2023 Q4
+    promises:
+      - {metric: revenue, basis: unspecified, period: FY2024 Q1, low: 540e6, high: 590e6}
+      - {metric: eps_diluted, basis: gaap, period: FY2024 Q1, low: 0.19, high: 0.35}
+      - {metric: eps_diluted, basis: non_gaap, period: FY2024 Q1, low: 0.22, high: 0.38}
+
+  - accession: 0001451809-24-000022
+    ticker: SITM
+    reported: FY2023 Q4
+    # SiTime discusses its outlook only on the call.
+    promises: []

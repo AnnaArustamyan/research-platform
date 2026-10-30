@@ -190,7 +190,9 @@ async def test_fetch_documents_stores_selected_files(
         assert report is not None
         assert [d.doc_type for d in report.documents] == ["10-Q"]
 
-        document = (await session.scalars(select(Document).limit(1))).one()
+        document = (
+            await session.scalars(select(Document).where(Document.doc_type == "10-Q").limit(1))
+        ).one()
         assert document.storage_path is not None
         content = store.read(document.storage_path)
         assert content.startswith(b"<html>/Archives/edgar/data/1045810/")

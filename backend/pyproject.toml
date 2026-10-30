@@ -5,6 +5,7 @@ description = "Track Record backend: EDGAR ingestion, promise tracking and resea
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
+    "anthropic>=2.3.0",
     "fastapi>=0.162.0",
     "httpx>=0.28.1",
     "procrastinate~=3.10.0",

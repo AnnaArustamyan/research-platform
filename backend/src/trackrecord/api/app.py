@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy import func, select, text
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,13 +18,29 @@ from trackrecord.api.schemas import (
     FilingOut,
     FiscalPeriodOut,
     Health,
+    PromiseOut,
+    ReviewRequest,
+    SpendOut,
     SyncQueued,
     SyncRequest,
     SyncRunOut,
 )
 from trackrecord.config import Settings, get_settings
 from trackrecord.db import make_engine, make_sessionmaker
-from trackrecord.models import Company, Filing, FilingKind, FiscalPeriod, SyncRun, XbrlFact
+from trackrecord.llm import month_spend
+from trackrecord.models import (
+    Company,
+    Filing,
+    FilingKind,
+    FiscalPeriod,
+    Metric,
+    Promise,
+    PromiseStatus,
+    ReviewStatus,
+    SyncRun,
+    XbrlFact,
+)
+from trackrecord.promises.extract import mark_reviewed
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -140,6 +156,65 @@ async def list_facts(
     return sorted(facts, key=lambda f: (f.period_end, f.period_start or f.period_end))
 
 
+def _promises_query() -> Select[Promise]:
+    return select(Promise).options(selectinload(Promise.target_period))
+
+
+@router.get("/companies/{ticker}/promises", response_model=list[PromiseOut])
+async def list_promises(
+    ticker: str,
+    session: SessionDep,
+    metric: Metric | None = None,
+    status: PromiseStatus | None = None,
+    include_rejected: bool = False,
+) -> list[Promise]:
+    company = await company_by_ticker(session, ticker)
+    stmt = (
+        _promises_query()
+        .where(Promise.company_id == company.id)
+        .order_by(Promise.issued_at.desc(), Promise.metric, Promise.basis)
+    )
+    if metric is not None:
+        stmt = stmt.where(Promise.metric == metric)
+    if status is not None:
+        stmt = stmt.where(Promise.status == status)
+    if not include_rejected:
+        stmt = stmt.where(Promise.review_status != ReviewStatus.REJECTED)
+    return list((await session.scalars(stmt)).all())
+
+
+@router.get("/review", response_model=list[PromiseOut])
+async def review_queue(
+    session: SessionDep, limit: Annotated[int, Query(ge=1, le=500)] = 100
+) -> list[Promise]:
+    """Promises the extractor wasn't sure about, oldest first."""
+    stmt = (
+        _promises_query()
+        .where(Promise.review_status == ReviewStatus.NEEDS_REVIEW)
+        .order_by(Promise.issued_at, Promise.id)
+        .limit(limit)
+    )
+    return list((await session.scalars(stmt)).all())
+
+
+@router.post("/promises/{promise_id}/review", response_model=PromiseOut)
+async def review_promise(promise_id: int, request: ReviewRequest, session: SessionDep) -> Promise:
+    promise = await mark_reviewed(session, promise_id, request.status)
+    if promise is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown promise {promise_id}")
+    await session.commit()
+    await session.refresh(promise, ["target_period"])
+    return promise
+
+
+@router.get("/llm/spend", response_model=SpendOut)
+async def llm_spend(request: Request, session: SessionDep) -> SpendOut:
+    return SpendOut(
+        month_to_date_usd=await month_spend(session),
+        monthly_budget_usd=request.app.state.settings.llm_monthly_budget_usd,
+    )
+
+
 @router.post("/sync", response_model=SyncQueued)
 async def queue_sync(request: SyncRequest, session: SessionDep) -> SyncQueued:
     stmt = select(Company).where(Company.active)
@@ -170,6 +245,7 @@ async def stats(session: SessionDep) -> dict[str, int]:
         "filings": await count(Filing),
         "fiscal_periods": await count(FiscalPeriod),
         "xbrl_facts": await count(XbrlFact),
+        "promises": await count(Promise),
     }
 
 

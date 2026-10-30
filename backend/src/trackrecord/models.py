@@ -191,3 +191,162 @@ class SyncRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stats: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default="{}")
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class Metric(enum.StrEnum):
+    """The metric dictionary of docs/design.md §4.3, plus `other` for guidance on
+    anything else (segment revenue, capex, ...), which is stored but not scored."""
+
+    REVENUE = "revenue"
+    GROSS_MARGIN = "gross_margin"
+    OPERATING_EXPENSES = "operating_expenses"
+    OPERATING_MARGIN = "operating_margin"
+    EPS_DILUTED = "eps_diluted"
+    TAX_RATE = "tax_rate"
+    OTHER = "other"
+
+
+class Basis(enum.StrEnum):
+    GAAP = "gaap"
+    NON_GAAP = "non_gaap"
+    UNSPECIFIED = "unspecified"
+
+
+class Unit(enum.StrEnum):
+    USD = "usd"
+    PERCENT = "percent"
+    USD_PER_SHARE = "usd_per_share"
+
+
+class PromiseKind(enum.StrEnum):
+    RANGE = "range"  # low..high
+    POINT = "point"  # low == high; `approximate` widens it at resolution
+    BOUND = "bound"  # at least low, or at most high
+    RELATIVE = "relative"  # change vs. a reference period, resolved in M3
+    QUALITATIVE = "qualitative"  # stored and shown, never scored
+
+
+class PromiseStatus(enum.StrEnum):
+    PENDING = "pending"
+    SUPERSEDED = "superseded"
+    RESOLVED = "resolved"
+    UNRESOLVABLE = "unresolvable"
+
+
+class ReviewStatus(enum.StrEnum):
+    AUTO_ACCEPTED = "auto_accepted"
+    NEEDS_REVIEW = "needs_review"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class Promise(Base):
+    """One forward-looking statement about one metric for one future period."""
+
+    __tablename__ = "promises"
+    __table_args__ = (
+        Index("ix_promises_target", "company_id", "metric", "basis", "target_period_id"),
+        CheckConstraint("low IS NULL OR high IS NULL OR low <= high", name="promise_low_le_high"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    filing_id: Mapped[int] = mapped_column(ForeignKey("filings.id", ondelete="CASCADE"))
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
+    issued_at: Mapped[date] = mapped_column(Date)
+    issuing_period_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fiscal_periods.id", ondelete="SET NULL")
+    )
+    # As stated in the document; target_period_id is NULL if our calendar lacks it.
+    target_fiscal_year: Mapped[int]
+    target_fiscal_quarter: Mapped[int | None]
+    target_period_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fiscal_periods.id", ondelete="SET NULL")
+    )
+
+    metric: Mapped[Metric] = mapped_column(_enum(Metric, "metric"))
+    metric_name: Mapped[str] = mapped_column(Text)  # as the document names it
+    basis: Mapped[Basis] = mapped_column(_enum(Basis, "basis"))
+    kind: Mapped[PromiseKind] = mapped_column(_enum(PromiseKind, "promise_kind"))
+    unit: Mapped[Unit | None] = mapped_column(_enum(Unit, "unit"))
+    # Absolute values: USD, percent (52.5 means 52.5%), or USD per share.
+    low: Mapped[Decimal | None] = mapped_column(Numeric)
+    high: Mapped[Decimal | None] = mapped_column(Numeric)
+    approximate: Mapped[bool] = mapped_column(server_default=false())
+    # For RELATIVE promises: change in percent vs. the reference period's actual.
+    relative_reference: Mapped[str | None] = mapped_column(String(24))
+    change_low: Mapped[Decimal | None] = mapped_column(Numeric)
+    change_high: Mapped[Decimal | None] = mapped_column(Numeric)
+    # Set when a documented convention was applied ("mid single digits" -> 4-6%).
+    interpretation: Mapped[str | None] = mapped_column(Text)
+
+    quote: Mapped[str] = mapped_column(Text)
+    span_start: Mapped[int]
+    span_end: Mapped[int]
+    confidence: Mapped[float]
+
+    status: Mapped[PromiseStatus] = mapped_column(
+        _enum(PromiseStatus, "promise_status"), server_default=PromiseStatus.PENDING.value
+    )
+    review_status: Mapped[ReviewStatus] = mapped_column(_enum(ReviewStatus, "review_status"))
+    review_reasons: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default="{}")
+    superseded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("promises.id", ondelete="SET NULL")
+    )
+
+    extractor_version: Mapped[str] = mapped_column(String(32))
+    llm_call_id: Mapped[int | None] = mapped_column(ForeignKey("llm_calls.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    target_period: Mapped[FiscalPeriod | None] = relationship(foreign_keys=[target_period_id])
+
+
+class LlmCallStatus(enum.StrEnum):
+    SUCCEEDED = "succeeded"
+    REFUSED = "refused"
+    TRUNCATED = "truncated"
+    INVALID_OUTPUT = "invalid_output"
+    FAILED = "failed"
+
+
+class LlmCall(Base):
+    """Cost ledger: one row per model request, used for spend tracking and the budget cap."""
+
+    __tablename__ = "llm_calls"
+    __table_args__ = (Index("ix_llm_calls_created", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    task: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(64))
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("llm_batches.id", ondelete="SET NULL"))
+    subject: Mapped[str | None] = mapped_column(Text)  # e.g. "document:123"
+    status: Mapped[LlmCallStatus] = mapped_column(_enum(LlmCallStatus, "llm_call_status"))
+    input_tokens: Mapped[int] = mapped_column(server_default="0")
+    output_tokens: Mapped[int] = mapped_column(server_default="0")
+    cache_read_tokens: Mapped[int] = mapped_column(server_default="0")
+    cache_write_tokens: Mapped[int] = mapped_column(server_default="0")
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6), server_default="0")
+    latency_ms: Mapped[int | None]
+    request_id: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LlmBatchStatus(enum.StrEnum):
+    SUBMITTED = "submitted"
+    COLLECTED = "collected"
+    FAILED = "failed"
+
+
+class LlmBatch(Base):
+    __tablename__ = "llm_batches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anthropic_batch_id: Mapped[str] = mapped_column(String(64), unique=True)
+    task: Mapped[str] = mapped_column(String(64))
+    model: Mapped[str] = mapped_column(String(64))
+    request_count: Mapped[int]
+    status: Mapped[LlmBatchStatus] = mapped_column(_enum(LlmBatchStatus, "llm_batch_status"))
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

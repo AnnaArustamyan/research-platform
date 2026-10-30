@@ -10,6 +10,13 @@ from trackrecord.models import Base
 target_metadata = Base.metadata
 
 
+def include_object(
+    obj: object, name: str | None, type_: str, reflected: bool, compare_to: object
+) -> bool:
+    """Leave procrastinate's tables to procrastinate (created in revision 0002)."""
+    return not (type_ == "table" and name is not None and name.startswith("procrastinate_"))
+
+
 def database_url() -> str:
     return context.config.get_main_option("sqlalchemy.url") or get_settings().database_url
 
@@ -21,7 +28,9 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, target_metadata=target_metadata, include_object=include_object
+    )
     with context.begin_transaction():
         context.run_migrations()
 
