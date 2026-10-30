@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from decimal import Decimal
 
 import httpx
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.conftest import FakeEdgar
 from tests.fakes import NVDA_Q2FY27_OUTPUT, FakeClaude, promise, response
+from tests.test_resolve import add_promise
 from trackrecord import worker
 from trackrecord.api.app import create_app
 from trackrecord.config import Settings
@@ -19,6 +21,7 @@ from trackrecord.llm import Llm
 from trackrecord.models import Company
 from trackrecord.promises.extract import extract_filing
 from trackrecord.promises.schema import ExtractionOutput
+from trackrecord.resolve import resolve_company
 
 pytestmark = pytest.mark.db
 
@@ -176,3 +179,31 @@ async def test_promises_review_and_spend(settings: Settings, extracted: None) ->
         spend = (await client.get("/llm/spend")).json()
         assert float(spend["month_to_date_usd"]) > 0
         assert float(spend["monthly_budget_usd"]) == 30
+
+
+async def test_actuals_resolution_and_credibility(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, release_id: int
+) -> None:
+    async with sessionmaker() as session:
+        promise = await add_promise(session, "FY2027 Q2")
+        await resolve_company(session, promise.company_id, today=date(2026, 10, 1))
+        await session.commit()
+
+    async with api_client(settings) as client:
+        actuals = (await client.get("/companies/NVDA/actuals", params={"metric": "revenue"})).json()
+        q2 = next(a for a in actuals if a["period"]["label"] == "FY2027 Q2")
+        assert (q2["source"], float(q2["value"])) == ("xbrl", 96221000000)
+
+        (resolved,) = (await client.get("/companies/NVDA/promises")).json()
+        assert resolved["resolution"]["outcome"] == "above"
+        assert resolved["resolution"]["actual"]["period"]["label"] == "FY2027 Q2"
+
+        credibility = (await client.get("/companies/NVDA/credibility")).json()
+        assert (credibility["ticker"], credibility["resolved"], credibility["hits"]) == (
+            "NVDA",
+            1,
+            1,
+        )
+        assert credibility["by_metric"][0]["metric"] == "revenue"
+        ranking = (await client.get("/credibility")).json()
+        assert [c["ticker"] for c in ranking] == ["NVDA"]

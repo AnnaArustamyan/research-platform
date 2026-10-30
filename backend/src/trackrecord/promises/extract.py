@@ -35,6 +35,7 @@ from trackrecord.models import (
 from trackrecord.promises.normalize import NormalizedPromise, Rejected, normalize
 from trackrecord.promises.prompt import EXTRACTOR_VERSION, SYSTEM_PROMPT, user_message
 from trackrecord.promises.schema import ExtractionOutput
+from trackrecord.resolve import drop_resolutions
 
 log = logging.getLogger(__name__)
 
@@ -237,27 +238,38 @@ def _stored_key(p: Promise) -> tuple[object, ...]:
 
 async def refresh_supersession(session: AsyncSession, company_id: int) -> None:
     """For each metric, basis and target period, the latest guidance stands and earlier
-    guidance is superseded. Order-independent, so batch results can arrive in any order."""
+    guidance is superseded. Order-independent, so batch results can arrive in any order,
+    even after an earlier promise was resolved: its resolution is then dropped."""
     promises = (
         await session.scalars(
             select(Promise)
-            .where(
-                Promise.company_id == company_id,
-                Promise.status.in_([PromiseStatus.PENDING, PromiseStatus.SUPERSEDED]),
-                Promise.review_status != ReviewStatus.REJECTED,
-            )
+            .where(Promise.company_id == company_id)
             .order_by(Promise.issued_at, Promise.id)
         )
     ).all()
+    standing = [p for p in promises if p.review_status != ReviewStatus.REJECTED]
     latest: dict[tuple[object, ...], Promise] = {}
-    for promise in promises:
+    for promise in standing:
         latest[_stored_key(promise)] = promise  # ordered, so the last one wins
-    for promise in promises:
+
+    unresolved: list[int] = [p.id for p in promises if p.review_status == ReviewStatus.REJECTED]
+    for promise in standing:
         winner = latest[_stored_key(promise)]
         if promise is winner:
-            promise.status, promise.superseded_by_id = PromiseStatus.PENDING, None
+            if promise.status == PromiseStatus.SUPERSEDED:
+                promise.status = PromiseStatus.PENDING
+            promise.superseded_by_id = None
         else:
+            if promise.status in {PromiseStatus.RESOLVED, PromiseStatus.UNRESOLVABLE}:
+                unresolved.append(promise.id)
             promise.status, promise.superseded_by_id = PromiseStatus.SUPERSEDED, winner.id
+    for promise in promises:
+        if (
+            promise.review_status == ReviewStatus.REJECTED
+            and promise.status == PromiseStatus.RESOLVED
+        ):
+            promise.status = PromiseStatus.PENDING
+    await drop_resolutions(session, unresolved)
 
 
 async def already_extracted(session: AsyncSession, document: Document) -> bool:

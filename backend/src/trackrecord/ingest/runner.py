@@ -3,18 +3,21 @@
 Shared by the CLI and the background worker.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from trackrecord.actuals.xbrl import derive_xbrl_actuals
 from trackrecord.config import Settings
 from trackrecord.db import session_scope
 from trackrecord.edgar.client import EdgarClient
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import fetch_filing_documents, sync_company
 from trackrecord.models import Company, Filing, SyncRun, SyncStatus
+from trackrecord.resolve import resolve_company
 
 
 async def run_company_sync(
@@ -33,11 +36,23 @@ async def run_company_sync(
         async with session_scope(sessionmaker) as session:
             company = await session.get_one(Company, company_id)
             stats = await sync_company(session, client, company, settings)
+        stats |= await refresh_company_results(sessionmaker, company_id)
     except Exception as exc:
         await _finish_run(sessionmaker, run_id, SyncStatus.FAILED, error=repr(exc))
         raise
     await _finish_run(sessionmaker, run_id, SyncStatus.SUCCEEDED, stats=stats)
     return stats
+
+
+async def refresh_company_results(
+    sessionmaker: async_sessionmaker[AsyncSession], company_id: int
+) -> dict[str, Any]:
+    """Recompute GAAP actuals from XBRL and re-resolve the company's promises."""
+    async with session_scope(sessionmaker) as session:
+        company = await session.get_one(Company, company_id)
+        actuals = await derive_xbrl_actuals(session, company)
+        resolved = await resolve_company(session, company_id)
+    return {"xbrl_actuals": actuals, "resolve": asdict(resolved)}
 
 
 async def _finish_run(

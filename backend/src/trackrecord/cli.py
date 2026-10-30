@@ -11,12 +11,18 @@ import typer
 import uvicorn
 from sqlalchemy import Select, select
 
+from trackrecord.actuals.press import extract_reported_results, releases_without_results
 from trackrecord.config import get_settings
+from trackrecord.credibility import all_credibility
 from trackrecord.db import make_engine, make_sessionmaker, session_scope
 from trackrecord.edgar.client import EdgarClient
 from trackrecord.evals.extraction import golden_filing_ids, load_golden, score_database
 from trackrecord.ingest.checks import check_guidance
-from trackrecord.ingest.runner import run_company_sync, run_document_fetch
+from trackrecord.ingest.runner import (
+    refresh_company_results,
+    run_company_sync,
+    run_document_fetch,
+)
 from trackrecord.ingest.storage import RawStore
 from trackrecord.ingest.sync import filings_missing_documents, load_universe, seed_companies
 from trackrecord.llm import has_claude_credentials, make_llm, month_spend
@@ -203,6 +209,97 @@ def _echo_stats(stats: ExtractionStats) -> None:
     )
     for reason in stats.rejected:
         typer.echo(f"  rejected: {reason}")
+
+
+@cli.command("read-results")
+def read_results(
+    tickers: Annotated[
+        list[str] | None, typer.Argument(help="Default: all active companies")
+    ] = None,
+    limit: Annotated[int | None, typer.Option(help="At most this many releases")] = None,
+) -> None:
+    """Extract reported results (incl. non-GAAP) from earnings releases, then resolve."""
+
+    async def run() -> None:
+        settings = get_settings()
+        if not has_claude_credentials():
+            raise typer.BadParameter("set ANTHROPIC_API_KEY to read results")
+        engine = make_engine(settings.database_url)
+        sessionmaker = make_sessionmaker(engine)
+        llm = make_llm(sessionmaker, settings)
+        async with sessionmaker() as session:
+            company_ids = list((await session.scalars(_companies_stmt(tickers))).all())
+            filing_ids = await releases_without_results(session, company_ids)
+        filing_ids = filing_ids[:limit] if limit else filing_ids
+        typer.echo(f"{len(filing_ids)} releases to read")
+        stored = 0
+        for filing_id in filing_ids:
+            stats = await extract_reported_results(
+                sessionmaker,
+                llm,
+                RawStore(settings.raw_dir),
+                filing_id,
+                model=settings.extraction_model,
+                effort=settings.extraction_effort,
+            )
+            stored += stats.stored
+        typer.echo(f"stored {stored} reported values")
+        for company_id in company_ids:
+            await refresh_company_results(sessionmaker, company_id)
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+@cli.command()
+def resolve(
+    tickers: Annotated[
+        list[str] | None, typer.Argument(help="Default: all active companies")
+    ] = None,
+) -> None:
+    """Recompute GAAP actuals from XBRL and resolve promises (no API calls)."""
+
+    async def run() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        sessionmaker = make_sessionmaker(engine)
+        async with sessionmaker() as session:
+            companies = (
+                await session.scalars(
+                    select(Company)
+                    .where(Company.id.in_(_companies_stmt(tickers)))
+                    .order_by(Company.ticker)
+                )
+            ).all()
+        for company in companies:
+            stats = await refresh_company_results(sessionmaker, company.id)
+            typer.echo(f"{company.ticker}: {stats}")
+        await engine.dispose()
+
+    asyncio.run(run())
+
+
+@cli.command()
+def credibility() -> None:
+    """Credibility scores of all companies, best first."""
+
+    async def run() -> None:
+        settings = get_settings()
+        engine = make_engine(settings.database_url)
+        async with make_sessionmaker(engine)() as session:
+            tickers = dict((await session.execute(select(Company.id, Company.ticker))).all())
+            scores = await all_credibility(session)
+        await engine.dispose()
+        for c in sorted(scores, key=lambda c: (c.score is None, -(c.score or 0))):
+            if c.resolved == 0:
+                typer.echo(f"{tickers[c.company_id]:5}   -  no resolved promises")
+                continue
+            typer.echo(
+                f"{tickers[c.company_id]:5} {c.score:3}  hits {c.hits}/{c.resolved}, "
+                f"beat rate {c.beat_rate:.0%}, streak {c.streak:+d}"
+            )
+
+    asyncio.run(run())
 
 
 @cli.command("eval-extraction")

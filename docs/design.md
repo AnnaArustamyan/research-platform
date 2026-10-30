@@ -4,7 +4,7 @@
 > companies promise investors, checks those promises against what they later
 > report, and answers research questions with cited, code-computed numbers.
 
-Status: approved; M1 done, M2 built (awaiting first eval run) · Owner: Anna Arustamyan · Last updated: 2026-10-30
+Status: approved; M1 done, M2 and M3 built (awaiting first runs with a Claude API key) · Owner: Anna Arustamyan · Last updated: 2026-10-30
 
 ---
 
@@ -185,10 +185,11 @@ chunks(id, document_id, section_id, ord, text, context_summary,
 xbrl_facts(id, company_id, concept, unit, value, period_start, period_end,
            fiscal_year, fiscal_period, form, accession, filed_at)
 actuals(id, company_id, period_id, metric, basis, value, unit,
-        source_kind[press_release|xbrl|derived], source_document_id, source_span, filed_at)
+        source[xbrl|xbrl_derived|press_release], detail, accession, document_id, quote, filed_at)
+resolutions(id, promise_id, actual_id, actual_value, expected_low, expected_high,
+        outcome, hit, surprise_pct, surprise_pp, status, discrepancy)
 promises(...)      -- §5.1
 resolutions(...)   -- §5.3
-credibility_snapshots(id, company_id, metric NULL=all, as_of, stats jsonb)
 research_sessions / research_messages / research_citations
 feedback(id, target_kind, target_id, rating, note, created_at)
 llm_calls(id, task, model, input_tokens, output_tokens, cache_read_tokens,
@@ -298,21 +299,43 @@ class Qualitative(BaseModel): text: str   # stored and shown, never scored
 
 ### 5.4 Credibility
 
-Per company, per metric and overall:
+Per company, and per metric and basis (`credibility.py`):
 
 | Statistic | Definition |
 |---|---|
 | Hit rate | Share of resolved promises met or beaten in the favorable direction |
-| Miss rate | Share missed in the unfavorable direction |
-| Bias | Mean signed `surprise_pct` (positive = conservative guidance) |
+| Score | Hit rate shrunk toward the sector-wide rate (Beta-Binomial, prior worth 10 promises), 0–100 |
+| Beat rate ("sandbagging index") | Share that landed beyond the guided range in the good direction |
+| Bias | Mean signed surprise vs. the midpoint: `surprise_pct`, and `surprise_pp` for percentages (positive = better than guided) |
 | Consistency | Standard deviation of `surprise_pct` |
-| Sandbagging index | Share of beats above the top of the range |
-| Streak | Current run of consecutive hits or misses |
+| Streak | Current run of hits (+n) or misses (−n), by target period |
 
-Rates use Beta-Binomial shrinkage toward the sector-wide rate, so a company
-with 3 promises doesn't show a misleading 100 %. A composite 0–100 score is
-shown with its components always visible next to it. Snapshots are stored per
-quarter, so the trend is visible over time.
+Statistics are computed on request from the stored resolutions, so they are
+always current. Only standing promises count: superseded ones, rejected ones,
+`other` metrics and qualitative statements don't. Trend snapshots per quarter
+come with the analytics page in M6.
+
+### 5.5 Implementation notes (M3)
+
+- **GAAP actuals** (`actuals/xbrl.py`): for each confirmed period, facts whose
+  context matches the period (start within 7 days, same end) are read.
+  - Each input has a list of concepts tried in order (`Revenues`, then
+    `RevenueFromContractWithCustomerExcludingAssessedTax`, ...).
+  - Margins and tax rates are ratios of two facts.
+  - Operating expenses fall back to gross profit minus operating income; gross
+    margin falls back to revenue minus cost of revenue.
+  - On real data this covers revenue for 98% of quarters, operating margin 96%,
+    gross margin 93%, operating expenses 88%, tax rate 79% and EPS 77%.
+  - The EPS gap is Q4, which XBRL can't provide (EPS isn't additive). The press
+    release fills it.
+- **Press-release actuals** (`actuals/press.py`): one structured-output call per
+  exhibit, with the same quote and number checks as promises. Margins are
+  computed from gross profit or operating income when only amounts are given.
+- **Unresolvable** is decided only once the release reporting the period has
+  been read and 150 days have passed. Until then a non-GAAP or Q4 EPS actual
+  may still arrive.
+- **Supersession** also covers resolved promises: guidance that arrives late in
+  a backfill drops the earlier promise's resolution.
 
 ---
 

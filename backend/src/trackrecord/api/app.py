@@ -1,6 +1,7 @@
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
@@ -13,7 +14,9 @@ from sqlalchemy.orm import selectinload
 
 from trackrecord import worker
 from trackrecord.api.schemas import (
+    ActualOut,
     CompanyOut,
+    CredibilityOut,
     FactOut,
     FilingOut,
     FiscalPeriodOut,
@@ -26,9 +29,11 @@ from trackrecord.api.schemas import (
     SyncRunOut,
 )
 from trackrecord.config import Settings, get_settings
+from trackrecord.credibility import all_credibility, company_credibility
 from trackrecord.db import make_engine, make_sessionmaker
 from trackrecord.llm import month_spend
 from trackrecord.models import (
+    Actual,
     Company,
     Filing,
     FilingKind,
@@ -36,6 +41,7 @@ from trackrecord.models import (
     Metric,
     Promise,
     PromiseStatus,
+    Resolution,
     ReviewStatus,
     SyncRun,
     XbrlFact,
@@ -157,7 +163,12 @@ async def list_facts(
 
 
 def _promises_query() -> Select[Promise]:
-    return select(Promise).options(selectinload(Promise.target_period))
+    return select(Promise).options(
+        selectinload(Promise.target_period),
+        selectinload(Promise.resolution)
+        .selectinload(Resolution.actual)
+        .selectinload(Actual.period),
+    )
 
 
 @router.get("/companies/{ticker}/promises", response_model=list[PromiseOut])
@@ -183,6 +194,41 @@ async def list_promises(
     return list((await session.scalars(stmt)).all())
 
 
+@router.get("/companies/{ticker}/actuals", response_model=list[ActualOut])
+async def list_actuals(
+    ticker: str, session: SessionDep, metric: Metric | None = None
+) -> list[Actual]:
+    company = await company_by_ticker(session, ticker)
+    stmt = (
+        select(Actual)
+        .join(FiscalPeriod, FiscalPeriod.id == Actual.period_id)
+        .where(Actual.company_id == company.id)
+        .options(selectinload(Actual.period))
+        .order_by(FiscalPeriod.end_date, Actual.metric, Actual.basis, Actual.source)
+    )
+    if metric is not None:
+        stmt = stmt.where(Actual.metric == metric)
+    return list((await session.scalars(stmt)).all())
+
+
+@router.get("/companies/{ticker}/credibility", response_model=CredibilityOut)
+async def get_credibility(ticker: str, session: SessionDep) -> CredibilityOut:
+    company = await company_by_ticker(session, ticker)
+    result = await company_credibility(session, company)
+    return CredibilityOut.model_validate(asdict(result) | {"ticker": company.ticker})
+
+
+@router.get("/credibility", response_model=list[CredibilityOut])
+async def list_credibility(session: SessionDep) -> list[CredibilityOut]:
+    """Every company's credibility, highest score first."""
+    tickers = dict((await session.execute(select(Company.id, Company.ticker))).all())
+    results = await all_credibility(session)
+    ranked = sorted(results, key=lambda c: (c.score is None, -(c.score or 0)))
+    return [
+        CredibilityOut.model_validate(asdict(c) | {"ticker": tickers[c.company_id]}) for c in ranked
+    ]
+
+
 @router.get("/review", response_model=list[PromiseOut])
 async def review_queue(
     session: SessionDep, limit: Annotated[int, Query(ge=1, le=500)] = 100
@@ -203,8 +249,9 @@ async def review_promise(promise_id: int, request: ReviewRequest, session: Sessi
     if promise is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown promise {promise_id}")
     await session.commit()
-    await session.refresh(promise, ["target_period"])
-    return promise
+    reloaded = await session.scalar(_promises_query().where(Promise.id == promise_id))
+    assert reloaded is not None
+    return reloaded
 
 
 @router.get("/llm/spend", response_model=SpendOut)
@@ -246,6 +293,8 @@ async def stats(session: SessionDep) -> dict[str, int]:
         "fiscal_periods": await count(FiscalPeriod),
         "xbrl_facts": await count(XbrlFact),
         "promises": await count(Promise),
+        "actuals": await count(Actual),
+        "resolutions": await count(Resolution),
     }
 
 

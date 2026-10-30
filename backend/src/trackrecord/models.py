@@ -299,6 +299,7 @@ class Promise(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     target_period: Mapped[FiscalPeriod | None] = relationship(foreign_keys=[target_period_id])
+    resolution: Mapped["Resolution | None"] = relationship(viewonly=True)
 
 
 class LlmCallStatus(enum.StrEnum):
@@ -350,3 +351,79 @@ class LlmBatch(Base):
     estimated_cost_usd: Mapped[Decimal] = mapped_column(Numeric(12, 6))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ActualSource(enum.StrEnum):
+    XBRL = "xbrl"  # read from one filing's XBRL facts (or a ratio of two)
+    XBRL_DERIVED = "xbrl_derived"  # Q4 = fiscal year minus nine months year-to-date
+    PRESS_RELEASE = "press_release"  # extracted from the earnings release (incl. non-GAAP)
+
+
+class Actual(Base):
+    """A reported value of a metric for a fiscal period, from one source."""
+
+    __tablename__ = "actuals"
+    __table_args__ = (UniqueConstraint("period_id", "metric", "basis", "source"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"))
+    period_id: Mapped[int] = mapped_column(ForeignKey("fiscal_periods.id", ondelete="CASCADE"))
+    metric: Mapped[Metric] = mapped_column(_enum(Metric, "metric"))
+    basis: Mapped[Basis] = mapped_column(_enum(Basis, "basis"))
+    source: Mapped[ActualSource] = mapped_column(_enum(ActualSource, "actual_source"))
+    value: Mapped[Decimal] = mapped_column(Numeric)
+    unit: Mapped[Unit] = mapped_column(_enum(Unit, "unit"))
+    # How the value was obtained, e.g. "GrossProfit / Revenues", and from where.
+    detail: Mapped[str] = mapped_column(Text)
+    accession: Mapped[str | None] = mapped_column(String(20))
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    quote: Mapped[str | None] = mapped_column(Text)
+    filed_at: Mapped[date] = mapped_column(Date)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    period: Mapped[FiscalPeriod] = relationship()
+
+
+class Outcome(enum.StrEnum):
+    BELOW = "below"
+    LOW_END = "low_end"  # in the bottom third of a range
+    MID = "mid"
+    HIGH_END = "high_end"
+    ABOVE = "above"
+    MET = "met"  # a point or bound, within tolerance
+
+
+class ResolutionStatus(enum.StrEnum):
+    PROVISIONAL = "provisional"  # from the press release only
+    CONFIRMED = "confirmed"  # from XBRL in a 10-Q/10-K
+
+
+class Resolution(Base):
+    """A promise compared with what the company later reported (docs/design.md §5.3)."""
+
+    __tablename__ = "resolutions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    promise_id: Mapped[int] = mapped_column(
+        ForeignKey("promises.id", ondelete="CASCADE"), unique=True
+    )
+    actual_id: Mapped[int] = mapped_column(ForeignKey("actuals.id", ondelete="CASCADE"))
+    actual_value: Mapped[Decimal] = mapped_column(Numeric)
+    # The range the actual was compared with: the promise's own range, a point
+    # widened by its tolerance, or a relative promise turned into absolute values.
+    expected_low: Mapped[Decimal | None] = mapped_column(Numeric)
+    expected_high: Mapped[Decimal | None] = mapped_column(Numeric)
+    outcome: Mapped[Outcome] = mapped_column(_enum(Outcome, "outcome"))
+    # Hit: met or beaten in the metric's favorable direction. Miss otherwise.
+    hit: Mapped[bool]
+    # Signed so that positive is better than guided, relative to the midpoint.
+    surprise_pct: Mapped[Decimal | None] = mapped_column(Numeric)
+    surprise_pp: Mapped[Decimal | None] = mapped_column(Numeric)  # percent metrics only
+    status: Mapped[ResolutionStatus] = mapped_column(_enum(ResolutionStatus, "resolution_status"))
+    # The press release and XBRL disagree on this GAAP value.
+    discrepancy: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    actual: Mapped[Actual] = relationship()

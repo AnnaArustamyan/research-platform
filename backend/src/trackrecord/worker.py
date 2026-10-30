@@ -16,8 +16,9 @@ from procrastinate.exceptions import AlreadyEnqueued
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from trackrecord.actuals.press import extract_reported_results
 from trackrecord.config import Settings, get_settings
-from trackrecord.db import make_engine, make_sessionmaker
+from trackrecord.db import make_engine, make_sessionmaker, session_scope
 from trackrecord.edgar.client import EdgarClient
 from trackrecord.ingest.runner import run_company_sync, run_document_fetch
 from trackrecord.ingest.storage import RawStore
@@ -25,6 +26,7 @@ from trackrecord.ingest.sync import filings_missing_documents
 from trackrecord.llm import Llm, has_claude_credentials, make_llm
 from trackrecord.models import Company, Filing, FilingKind
 from trackrecord.promises.extract import extract_filing
+from trackrecord.resolve import resolve_company
 
 log = logging.getLogger(__name__)
 
@@ -138,7 +140,18 @@ async def extract_promises_task(filing_id: int) -> None:
         model=r.settings.extraction_model,
         effort=r.settings.extraction_effort,
     )
-    log.info("extracted filing %s: %s", filing_id, stats)
+    results = await extract_reported_results(
+        r.sessionmaker,
+        r.llm,
+        r.store,
+        filing_id,
+        model=r.settings.extraction_model,
+        effort=r.settings.extraction_effort,
+    )
+    async with session_scope(r.sessionmaker) as session:
+        filing = await session.get_one(Filing, filing_id)
+        resolved = await resolve_company(session, filing.company_id)
+    log.info("filing %s: promises %s, results %s, %s", filing_id, stats, results, resolved)
 
 
 # EDGAR publishes new filings throughout the day; every two hours is plenty.

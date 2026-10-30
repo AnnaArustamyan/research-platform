@@ -5,11 +5,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from trackrecord.models import (
+    ActualSource,
     Basis,
     FilingKind,
     Metric,
+    Outcome,
     PromiseKind,
     PromiseStatus,
+    ResolutionStatus,
     ReviewStatus,
     SyncStatus,
     Unit,
@@ -99,6 +102,33 @@ class SyncQueued(BaseModel):
     already_queued: list[str]
 
 
+class ActualOut(Schema):
+    id: int
+    period: FiscalPeriodOut
+    metric: Metric
+    basis: Basis
+    source: ActualSource
+    value: Decimal
+    unit: Unit
+    detail: str
+    accession: str | None
+    quote: str | None
+    filed_at: date
+
+
+class ResolutionOut(Schema):
+    actual_value: Decimal
+    expected_low: Decimal | None
+    expected_high: Decimal | None
+    outcome: Outcome
+    hit: bool
+    surprise_pct: Decimal | None
+    surprise_pp: Decimal | None
+    status: ResolutionStatus
+    discrepancy: str | None
+    actual: ActualOut
+
+
 class PromiseOut(Schema):
     id: int
     company_id: int
@@ -128,6 +158,7 @@ class PromiseOut(Schema):
     review_status: ReviewStatus
     review_reasons: list[str]
     superseded_by_id: int | None
+    resolution: ResolutionOut | None
 
 
 class ReviewRequest(BaseModel):
@@ -137,3 +168,25 @@ class ReviewRequest(BaseModel):
 class SpendOut(BaseModel):
     month_to_date_usd: Decimal
     monthly_budget_usd: Decimal
+
+
+class MetricStatsOut(Schema):
+    metric: Metric
+    basis: Basis
+    resolved: int
+    hits: int
+    beats: int
+    mean_surprise_pct: float | None
+    stdev_surprise_pct: float | None
+    mean_surprise_pp: float | None
+
+
+class CredibilityOut(Schema):
+    ticker: str
+    resolved: int
+    hits: int
+    hit_rate: float | None
+    score: int | None
+    beat_rate: float | None
+    streak: int
+    by_metric: list[MetricStatsOut]
